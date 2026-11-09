@@ -96,6 +96,17 @@ to backend traces. Custom attributes (`hallpass.kind`, `results`, `candidates`, 
 and metrics (`hallpass.searches`, `hallpass.results`, `hallpass.route.length`). Elasticsearch
 failures become traced 502s instead of bare 500s.
 
+*A real issue, found and fixed during the event.* **Agent0** showed `GET /near` was our slowest
+endpoint (p95 **1.79 s** vs 0.42 s for `/search`), with ~**99%** of each request inside the
+Elasticsearch `search` span and only 1–11 ms in our code; the trace waterfall showed
+`hallpass.candidates = 400`. Measuring inside that span, Elasticsearch's own `took` was ~**60 ms**:
+the rest was shipping **~940 KB** of abstracts for 400 candidates that `/near` discards after
+ranking. Measuring also exposed a correctness bug: the 50 m circle around `#4510` holds **528**
+posters, so the 400 cap could drop the poster next to you. The fix (PR #7, reviewed by Gitar,
+shipped through Radar/Argo CD) fetches board numbers only for every candidate (~55 KB), ranks by
+walking distance, then `mget`s details for the top results: **0.71 s vs 3.32 s** p50 in a
+side-by-side test, same results.
+
 **Elasticsearch.** See above.
 
 ## Accessibility (Merge Forward)
