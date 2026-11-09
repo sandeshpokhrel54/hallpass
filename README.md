@@ -27,6 +27,21 @@ counts, so we treat them as the two faces of one wall; topic areas sit in the sa
 session. The **two-floor venue is synthetic**: the same posters split across two levels, to show
 multi-floor routing. Both are labelled as such in the UI.
 
+### What's verified about the layout, and what isn't
+
+| Assumption | Status | Evidence |
+|---|---|---|
+| Posters in Exhibit Hall C,D,E with board numbers like `#4003`, `#1215` | ✅ Confirmed | Authors' own listings use the same hall and numbers ([NEC Labs](https://www.nec-labs.com/blog/neurips-2025-in-san-diego-from-november-30th-to-december-5th-2025/), [Apple](https://machinelearning.apple.com/updates/apple-at-neurips-2025), [Berkeley Lab](https://cs.lbl.gov/news-and-events/berkeley-lab-showcases-expertise-in-machine-learning-at-neurips-2025/)) |
+| ~3 m between neighbouring boards | ✅ Plausible | [Official instructions](https://neurips.cc/Conferences/2025/PosterInstructions): boards are 96 in (2.44 m) wide |
+| `row × 100 + slot` numbering | 🟡 Supported by data | Slots always 0–19, never repeated within a session |
+| Rows 2k−1 / 2k back-to-back on one wall | 🟡 Inferred | Identical poster counts in every session; not officially documented |
+| Topic zones in fixed rows | 🟡 Supported by data | Same topics in the same rows across all six sessions |
+| Aisles cross only at wall ends; ~5 m apart | ❌ Assumption | Short rows (31–32, 41–42, 51–52) may be cross-aisles or pillars |
+
+**The layout is pluggable.** Organizers already have the real floor plan; a venue config
+(`hallpass/venues.py`, like the two-floor demo) replaces the inferred grid without touching
+search or routing.
+
 ## How it works
 
 ```
