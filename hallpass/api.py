@@ -165,6 +165,7 @@ def _with_distance(hit: dict, here: layout.Spot, venue: Venue = VENUES[DEFAULT_V
     src = hit["_source"]
     where = venue.spot(src["board"]) if src.get("board") else None
     return {
+        "_id": hit.get("_id"),
         "score": hit.get("_score"),
         "walk_m": round(layout.walk_m(here, where), 1) if where else None,
         **src,
@@ -208,10 +209,19 @@ def near(
     here = _spot_or_422(board, v)
     # Pre-filter in the index's single-hall coordinates (including the other
     # floor's lift area when it's within walking budget); rank with venue geometry.
+    # Step 1: every candidate in the circle, board numbers only (~50 KB instead of ~1 MB
+    # of abstracts; Elasticsearch itself answers in ~60 ms, the rest was transfer).
     body = hes.near_candidates_body(v.search_areas(here, hes.NEAR_RADIUS_M), session, q)
-    resp = es().search(index=hes.INDEX, body=body)
-    hits = resp["hits"]["hits"]
-    out = rank_near(hits, here, bool(q), size, v)
+    resp = es().search(index=hes.INDEX, body=body, filter_path=hes.NEAR_FILTER_PATH)
+    hits = resp.get("hits", {}).get("hits", [])
+    ranked = rank_near(hits, here, bool(q), size, v)
+    # Step 2: full details for the few we return.
+    ids = [r["_id"] for r in ranked if r.get("_id")]
+    docs = {}
+    if ids:
+        got = es().mget(index=hes.INDEX, ids=ids, source=hes.SOURCE_FIELDS)
+        docs = {d["_id"]: d["_source"] for d in got["docs"] if d.get("found")}
+    out = [{**docs.get(r.pop("_id"), {}), **r} for r in ranked]
     _observe("near", len(out), started, session=session, board=board, candidates=len(hits), with_query=bool(q))
     return out
 

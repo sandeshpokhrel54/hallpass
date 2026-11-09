@@ -138,10 +138,13 @@ def test_near_two_floor_venue_searches_indexed_coordinates(monkeypatch):
     seen = {}
 
     class FakeES:
-        def search(self, index, body):
+        def search(self, index, body, **kw):
             seen["body"] = body
-            hits = [{"_score": 1.0, "_source": {"board": b, "title": str(b)}} for b in (3306, 3310, 505)]
+            hits = [{"_id": str(b), "_score": 1.0, "_source": {"board": b}} for b in (3306, 3310, 505)]
             return {"hits": {"hits": hits}}
+
+        def mget(self, index, ids, source):
+            return {"docs": [{"_id": i, "found": True, "_source": {"board": int(i), "title": f"T{i}"}} for i in ids]}
 
     monkeypatch.setattr(api, "_es", FakeES())
     r = client.get("/near", params={"board": 3305, "session": "S", "venue": "demo-two-floors"})
@@ -164,3 +167,32 @@ def test_near_by_the_lift_also_searches_the_other_floor():
     assert areas[1][0] == v.indexed_geo(layout.lift(0))
     far = v.spot(5501)
     assert len(v.search_areas(far, 50)) == 1
+
+
+def test_near_fetches_only_boards_then_details_for_top(monkeypatch):
+    import hallpass.api as api
+    from hallpass import es as hes
+    calls = {}
+
+    class FakeES:
+        def search(self, index, body, **kw):
+            calls["source"], calls["size"], calls["filter_path"] = body["_source"], body["size"], kw.get("filter_path")
+            # 600 candidates: more than the old 400 cap
+            hits = [{"_id": f"d{b}", "_score": 1.0, "_source": {"board": b}}
+                    for b in [r * 100 + sl for r in range(1, 31) for sl in range(20)]]
+            return {"hits": {"hits": hits}}
+
+        def mget(self, index, ids, source):
+            calls["mget_ids"] = ids
+            return {"docs": [{"_id": i, "found": True, "_source": {"board": int(i[1:]), "title": "t", "abstract": "a"}} for i in ids]}
+
+    monkeypatch.setattr(api, "_es", FakeES())
+    r = client.get("/near", params={"board": 2915, "session": "S", "size": 5})
+    assert r.status_code == 200
+    assert calls["source"] == ["board"] and calls["size"] >= 950 and "_source.board" in calls["filter_path"]
+    assert len(calls["mget_ids"]) == 5
+    rows = r.json()
+    # The board you're at (and the one facing it across the aisle) are found despite 600 candidates.
+    zero = {x["board"] for x in rows if x["walk_m"] == 0}
+    assert zero == {2915, 2815}
+    assert all("title" in x and "_id" not in x for x in rows)
