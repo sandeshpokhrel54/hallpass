@@ -95,7 +95,7 @@ def _filtered(query: dict[str, Any], filters: list[dict]) -> dict[str, Any]:
 
 
 def search_body(
-    q: str, session: str | None = None, size: int = 20, rerank: bool = True
+    q: str, session: str | None = None, size: int = 20, rerank: bool = False
 ) -> dict[str, Any]:
     """Three-way hybrid search, then a cross-encoder rerank, all in one Elasticsearch query.
 
@@ -103,8 +103,10 @@ def search_body(
       - BM25 keyword match on title / abstract / authors / topic
       - ELSER learned-sparse semantic match (term expansion)
       - Jina v5 dense embedding match
-    Stage 2 (precision): Jina reranker v3 re-reads the top RERANK_WINDOW candidates
-    against the query and produces the final order.
+    Stage 2 (optional): Jina reranker v3 re-reads the titles of the top
+    RERANK_WINDOW candidates against the query. Off by default: on our test
+    queries it helped some (agent reliability) and hurt others (dropped the best
+    diffusion-segmentation match); reading full abstracts was worse still.
     """
     filters = [{"term": {"session": session}}] if session else []
     fused = {
@@ -125,7 +127,7 @@ def search_body(
         retriever = {
             "text_similarity_reranker": {
                 "retriever": fused,
-                "field": "abstract",
+                "field": "title",
                 "inference_id": RERANK_MODEL,
                 "inference_text": q,
                 "rank_window_size": max(RERANK_WINDOW, size),

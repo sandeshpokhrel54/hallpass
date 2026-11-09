@@ -108,11 +108,12 @@ def search(
     q: str = Query(..., min_length=2, description="keywords, a sentence, or your own abstract"),
     session: str | None = None,
     size: int = Query(20, ge=1, le=100),
+    rerank: bool = Query(False, description="re-order the top 30 with Jina reranker v3"),
 ) -> list[dict]:
     started = time.perf_counter()
-    resp = es().search(index=hes.INDEX, body=hes.search_body(q, session, size))
+    resp = es().search(index=hes.INDEX, body=hes.search_body(q, session, size, rerank))
     out = [{"score": h["_score"], **h["_source"]} for h in resp["hits"]["hits"]]
-    _observe("search", len(out), started, session=session, query_chars=len(q))
+    _observe("search", len(out), started, session=session, query_chars=len(q), rerank=rerank)
     return out
 
 

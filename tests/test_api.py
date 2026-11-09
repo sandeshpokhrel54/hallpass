@@ -87,3 +87,14 @@ def test_elasticsearch_failure_is_a_502(monkeypatch):
     monkeypatch.setattr(api, "_es", Down())
     r = client.get("/search", params={"q": "diffusion"})
     assert r.status_code == 502
+
+
+def test_search_body_three_way_and_optional_rerank():
+    from hallpass.es import search_body
+    plain = search_body("diffusion", "S1", 10)
+    rrf = plain["retriever"]["rrf"]["retrievers"]
+    assert len(rrf) == 3
+    fields = [r["standard"]["query"]["bool"]["must"].get("semantic", {}).get("field") for r in rrf]
+    assert fields[1:] == ["semantic_content", "semantic_dense"]
+    rr = search_body("diffusion", "S1", 10, rerank=True)["retriever"]["text_similarity_reranker"]
+    assert rr["field"] == "title" and rr["retriever"]["rrf"]
