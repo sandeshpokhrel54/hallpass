@@ -64,7 +64,7 @@ A Rollout pauses at 25% on purpose. For that flow, use the `canary-release` skil
 
 ## 5. Verify from outside
 
-`curl -s https://<team>.cnh.radarhq.io/`. The starter app prints `version <sha>`, and it must match the built SHA from step 1, or the unchanged image tag for a deliberately skipped build. For a configuration-only change, also verify the intended configuration took effect. If you replaced the app, request something your change made visible.
+`curl -s https://<team>.cnh.radarhq.io/`. HallPass returns JSON `{"app": "hallpass", "version": "<sha>"}`, and `version` must match the built SHA from step 1, or the unchanged image tag for a deliberately skipped build. For a configuration-only change, also verify the intended configuration took effect. If you replaced the app, request something your change made visible.
 
 If anything here is red (a failed sync, pods not ready, the old version still serving, a 404 or 503 from the URL), switch to the `debug-failure` skill. Don't push guesses.
 

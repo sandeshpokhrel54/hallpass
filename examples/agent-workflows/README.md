@@ -13,7 +13,8 @@ described in newer documentation may not be deployed yet. Local OSS Radar has no
 ## Keep credentials out of your public repository
 
 First create `app-credentials` in your namespace through Radar's resource editor, using
-`type: Opaque` and `stringData.api-key` for the value. This Secret is deliberately
+`type: Opaque` and two keys under `stringData`: `es-url` (Elasticsearch endpoint) and
+`es-api-key` (Elasticsearch API key). This Secret is deliberately
 outside Argo CD: do not add its manifest to `deploy/`, a PR, your image, or a build log.
 The generic `apply_resource` MCP tool can create a Secret too, but supplying its value
 to an agent puts it in that agent's conversation/tool history. Prefer entering it in
@@ -23,11 +24,16 @@ Once the Secret exists, commit and deploy a `secretKeyRef` in your Deployment, n
 
 ```yaml
 env:
-  - name: API_KEY
+  - name: ES_URL
     valueFrom:
       secretKeyRef:
         name: app-credentials
-        key: api-key
+        key: es-url
+  - name: ES_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: app-credentials
+        key: es-api-key
 ```
 
 After changing a Secret consumed through environment variables, restart the workload
@@ -177,8 +183,8 @@ The image tag is the first seven characters of the app commit that triggered
    `sync_options`. Read the live Deployment (or Rollout if you changed the example)
    and confirm its pod-template image matches the expected tag. If not, keep waiting
    on the desired revision; don't report the existing healthy app as the new build.
-4. Use `wait_for` for rollout completion, then request your public `/api/sessions`.
-   The starter's `version` field must equal that seven-character tag (or the unchanged
+4. Use `wait_for` for rollout completion, then request your public `GET /`, which
+   returns JSON `{"app": "hallpass", "version": "<tag>"}`. `version` must equal that seven-character tag (or the unchanged
    image tag when the Action intentionally skipped a configuration-only push). Keep an equivalent
    version endpoint if you replace the starter app. Verify the feature you changed too.
 
