@@ -71,7 +71,11 @@ def create_index(es: Elasticsearch, recreate: bool = False) -> None:
 # finds those candidates; the API then re-ranks them by real walking distance
 # (around wall ends), which a straight-line geo query can't express.
 NEAR_RADIUS_M = 50
-NEAR_CANDIDATES = 400
+# Must cover every poster in the circle (a session has ~950), or "nearest" can
+# silently drop the poster next to you. Candidates carry only the board number,
+# so this stays small on the wire; details are fetched for the top results only.
+NEAR_CANDIDATES = 1000
+NEAR_FILTER_PATH = "hits.hits._id,hits.hits._score,hits.hits._source.board"
 
 
 def near_candidates_body(
@@ -92,7 +96,7 @@ def near_candidates_body(
     query: dict[str, Any] = {"bool": {"filter": filters}}
     if q:
         query["bool"]["must"] = {"semantic": {"field": "semantic_content", "query": q}}
-    return {"query": query, "size": NEAR_CANDIDATES, "_source": SOURCE_FIELDS}
+    return {"query": query, "size": NEAR_CANDIDATES, "_source": ["board"]}
 
 
 RERANK_WINDOW = 30
