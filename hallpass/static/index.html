@@ -73,8 +73,18 @@
   <div class="grid">
     <section class="panel" aria-labelledby="plan-h">
       <h2 id="plan-h" class="sr">Plan your session</h2>
-      <label for="session">Poster session</label>
-      <select id="session"></select>
+      <div class="row" style="margin-top:0">
+        <div>
+          <label for="session">Poster session</label>
+          <select id="session"></select>
+        </div>
+        <div>
+          <label for="venue">Venue layout</label>
+          <select id="venue"></select>
+        </div>
+      </div>
+      <p class="hint" id="venue-note" hidden>Demo layout: the same NeurIPS posters split across two floors to show
+        multi-floor routing. Floors connect by the lift at the front; a floor change counts as 40 m of walking.</p>
 
       <div style="margin-top:12px">
         <label for="q">What do you work on?</label>
@@ -114,11 +124,23 @@ const NS = "http://www.w3.org/2000/svg";
 const CW = 16, CH = 9, AISLE = 13, PADX = 34, PADY = 6, MAXSLOT = 19;
 const PALETTE = ["#4e79a7","#f28e2b","#59a14f","#e15759","#76b7b2","#edc948","#b07aa1","#ff9da7","#9c755f","#86bcb6","#d37295"];
 let hall = [], zones = [], areaColor = {}, routeBoards = [], youAt = null;
+let venues = [], venue = null, floorY = [0];
+const FLOOR_HEAD = 22, FLOOR_GAP = 18;
 
-const wallTop = (w) => PADY + (w - 1) * (2 * CH + AISLE) + AISLE;
-const rowY = (r) => wallTop(Math.floor((r + 1) / 2)) + (r % 2 ? 0 : CH);
+// Geometry is per floor: floorY[f] is the top of floor f's block.
+const wallTop = (w, f = 0) => floorY[f] + FLOOR_HEAD + PADY + (w - 1) * (2 * CH + AISLE) + AISLE;
+const rowY = (r, f = 0) => wallTop(Math.floor((r + 1) / 2), f) + (r % 2 ? 0 : CH);
 const slotX = (s) => PADX + s * CW;
-const aisleY = (a) => PADY + a * (2 * CH + AISLE) + AISLE / 2;
+const aisleY = (a, f = 0) => floorY[f] + FLOOR_HEAD + PADY + a * (2 * CH + AISLE) + AISLE / 2;
+// Board number -> [floor, row on that floor] for the current venue.
+function placeOf(board) {
+  const row = Math.floor(board / 100), split = venue && venue.split_row;
+  return split && row > split ? [1, row - split] : [0, row];
+}
+function wallPlace(w) {
+  const half = venue && venue.split_row ? venue.split_row / 2 : null;
+  return half && w > half ? [1, w - half] : [0, w];
+}
 
 function el(tag, attrs, parent) {
   const n = document.createElementNS(NS, tag);
@@ -151,11 +173,25 @@ async function loadSessions() {
   }
 }
 
+async function loadVenues() {
+  venues = await api("/venues");
+  const sel = $("venue");
+  for (const v of venues) {
+    const o = document.createElement("option");
+    o.value = v.id;
+    o.textContent = `${v.name}${v.floors.length > 1 ? ` · ${v.floors.length} floors` : ""}`;
+    sel.appendChild(o);
+  }
+  venue = venues[0];
+}
+
 async function loadHall() {
   const session = $("session").value;
+  venue = venues.find((v) => v.id === $("venue").value) || venues[0];
+  $("venue-note").hidden = !venue.synthetic;
   status("Loading the hall…");
   [hall, zones] = await Promise.all([
-    api(`/hall?session=${encodeURIComponent(session)}`),
+    api(`/hall?session=${encodeURIComponent(session)}&venue=${encodeURIComponent(venue.id)}`),
     api(`/zones?session=${encodeURIComponent(session)}`),
   ]);
   const areas = [...new Set(hall.map((p) => p.topic_area).filter(Boolean))].sort();
@@ -176,24 +212,49 @@ async function loadHall() {
 function draw(legs) {
   const svg = $("map");
   svg.innerHTML = "";
-  const maxRow = Math.max(...hall.map((p) => p.row), 2);
-  const walls = Math.floor((maxRow + 1) / 2);
-  const W = slotX(MAXSLOT + 1) + 110, H = wallTop(walls) + 2 * CH + AISLE + PADY;
+  const nFloors = venue ? venue.floors.length : 1;
+  // Size each floor block by its tallest row, then stack the blocks.
+  floorY = [0];
+  const blockH = [];
+  for (let f = 0; f < nFloors; f++) {
+    const rows = hall.filter((p) => (p.floor || 0) === f).map((p) => p.local_row || p.row);
+    const walls = Math.floor((Math.max(2, ...rows) + 1) / 2);
+    blockH[f] = FLOOR_HEAD + PADY + walls * (2 * CH + AISLE) + AISLE + PADY;
+    floorY[f + 1] = floorY[f] + blockH[f] + FLOOR_GAP;
+  }
+  const W = slotX(MAXSLOT + 1) + 110, H = floorY[nFloors] - FLOOR_GAP;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  // floor headings, outlines and the lift at the front of each floor
+  for (let f = 0; f < nFloors; f++) {
+    if (nFloors > 1) {
+      el("rect", { x: 2, y: floorY[f] + 2, width: W - 4, height: blockH[f] - 4, rx: 6,
+                   fill: "none", stroke: "var(--line)" }, svg);
+      const h = el("text", { x: 10, y: floorY[f] + 15, "font-size": 10, "font-weight": 700, fill: "var(--ink)" }, svg);
+      h.textContent = venue.floors[f];
+      const lx = slotX(MAXSLOT / 2) + CW / 2, ly = aisleY(0, f);
+      el("rect", { x: lx - 9, y: ly - 5, width: 18, height: 10, rx: 2, fill: "var(--you)" }, svg);
+      const lt = el("text", { x: lx, y: ly + 3, "font-size": 7, "font-weight": 700, "text-anchor": "middle", fill: "var(--panel)" }, svg);
+      lt.textContent = "LIFT";
+    }
+  }
 
   // wall labels from significant_terms
   for (const z of zones) {
-    const t = el("text", { x: slotX(MAXSLOT + 1) + 6, y: wallTop(z.wall) + CH + 3, "font-size": 7, fill: "var(--muted)" }, svg);
+    const [f, w] = wallPlace(z.wall);
+    if (f >= nFloors) continue;
+    const t = el("text", { x: slotX(MAXSLOT + 1) + 6, y: wallTop(w, f) + CH + 3, "font-size": 7, fill: "var(--muted)" }, svg);
     t.textContent = (z.labels[0] || z.area || "").slice(0, 26);
-    const n = el("text", { x: PADX - 6, y: wallTop(z.wall) + CH + 3, "font-size": 7, fill: "var(--muted)", "text-anchor": "end" }, svg);
+    const n = el("text", { x: PADX - 6, y: wallTop(w, f) + CH + 3, "font-size": 7, fill: "var(--muted)", "text-anchor": "end" }, svg);
     n.textContent = z.wall;
   }
 
   const routeIdx = new Map(routeBoards.map((b, i) => [b, i + 1]));
   for (const p of hall) {
     const on = routeIdx.has(p.board);
+    const f = p.floor || 0, row = p.local_row || p.row;
     const r = el("rect", {
-      x: slotX(p.slot) + 1, y: rowY(p.row) + 0.5, width: CW - 2, height: CH - 1, rx: 1.5,
+      x: slotX(p.slot) + 1, y: rowY(row, f) + 0.5, width: CW - 2, height: CH - 1, rx: 1.5,
       fill: areaColor[p.topic_area] || "var(--board)", "fill-opacity": routeBoards.length ? (on ? 1 : 0.18) : 0.55,
       stroke: on ? "var(--ink)" : "none", "stroke-width": on ? 1 : 0,
     }, svg);
@@ -201,32 +262,38 @@ function draw(legs) {
     tt.textContent = `${p.board_label} · ${p.title}`;
   }
 
-  // route path
+  // route path: each leg is [x, y, floor] points; split where the floor changes (the lift)
   for (const leg of legs) {
-    const pts = leg.map(([x, y], i) => {
-      const corner = leg.length === 4 && (i === 1 || i === 2);
-      const slot = x / 3;
-      const sx = corner ? (slot <= 0.01 ? PADX - 8 : slotX(MAXSLOT + 1) + 4) : slotX(slot) + CW / 2;
-      return `${sx},${aisleY(y / 5)}`;
+    const runs = [];
+    leg.forEach(([x, y, f = 0], i) => {
+      const prev = leg[i - 1];
+      if (!prev || (prev[2] || 0) !== f) runs.push([]);
+      const atEnd = (x <= 0.01 || x >= MAXSLOT * 3 - 0.01);
+      const isStop = i === 0 || i === leg.length - 1;
+      const sx = !isStop && atEnd ? (x <= 0.01 ? PADX - 8 : slotX(MAXSLOT + 1) + 4) : slotX(x / 3) + CW / 2;
+      runs[runs.length - 1].push(`${sx},${aisleY(y / 5, f)}`);
     });
-    el("polyline", { points: pts.join(" "), fill: "none", stroke: "var(--route)", "stroke-width": 2,
-                     "stroke-linejoin": "round", "stroke-dasharray": "4 3" }, svg);
+    for (const run of runs) {
+      if (run.length < 2) continue;
+      el("polyline", { points: run.join(" "), fill: "none", stroke: "var(--route)", "stroke-width": 2,
+                       "stroke-linejoin": "round", "stroke-dasharray": "4 3" }, svg);
+    }
   }
 
   // numbered stops
   for (const [b, i] of routeIdx) {
     const p = hall.find((h) => h.board === b);
     if (!p) continue;
-    const cx = slotX(p.slot) + CW / 2, cy = rowY(p.row) + CH / 2;
+    const f = p.floor || 0, row = p.local_row || p.row;
+    const cx = slotX(p.slot) + CW / 2, cy = rowY(row, f) + CH / 2;
     el("circle", { cx, cy, r: 6.5, fill: "var(--accent)", stroke: "var(--panel)", "stroke-width": 1.5 }, svg);
     const t = el("text", { x: cx, y: cy + 2.6, "font-size": 7.5, "font-weight": 700, "text-anchor": "middle", fill: "var(--accent-ink)" }, svg);
     t.textContent = i;
   }
 
   if (youAt) {
-    const p = hall.find((h) => h.board === youAt);
-    const row = p ? p.row : Math.floor(youAt / 100), slot = p ? p.slot : youAt % 100;
-    const cx = slotX(slot) + CW / 2, cy = rowY(row) + CH / 2;
+    const [f, row] = placeOf(youAt), slot = youAt % 100;
+    const cx = slotX(slot) + CW / 2, cy = rowY(row, f) + CH / 2;
     el("circle", { cx, cy, r: 8, fill: "none", stroke: "var(--you)", "stroke-width": 2.5 }, svg);
     const t = el("text", { x: cx + 10, y: cy + 3, "font-size": 8, "font-weight": 700, fill: "var(--you)" }, svg);
     t.textContent = "you";
@@ -288,7 +355,8 @@ async function plan() {
     if (!placed.length) { routeBoards = []; draw([]); renderList(hits, false); status("No placed posters matched."); return; }
     const route = await api("/route", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ boards: placed.map((h) => h.board), start: youAt && hall.some((p) => p.board === youAt) ? youAt : null }),
+      body: JSON.stringify({ boards: placed.map((h) => h.board), venue: venue.id,
+                             start: youAt && hall.some((p) => p.board === youAt) ? youAt : null }),
     });
     routeBoards = route.order;
     const byBoard = Object.fromEntries(placed.map((h) => [h.board, h]));
@@ -296,7 +364,8 @@ async function plan() {
     const rest = hits.filter((h) => !placed.includes(h));
     draw(route.legs);
     renderList([...ordered, ...rest], true);
-    status(`${ordered.length} stops · about ${route.total_m} m of walking.`);
+    const lifts = route.floor_changes ? ` · ${route.floor_changes} lift ride${route.floor_changes > 1 ? "s" : ""}` : "";
+    status(`${ordered.length} stops · about ${route.total_m} m of walking${lifts}.`);
   } catch (e) { status("Something went wrong: " + e.message); }
 }
 
@@ -308,7 +377,7 @@ async function near() {
   youAt = here;
   status("Looking around you…");
   try {
-    const params = new URLSearchParams({ board: here, session, size: 8 });
+    const params = new URLSearchParams({ board: here, session, size: 8, venue: venue.id });
     if (q.length >= 2) params.set("q", q);
     const hits = await api(`/near?${params}`);
     routeBoards = [];
@@ -322,10 +391,11 @@ async function near() {
 $("plan").addEventListener("click", plan);
 $("near").addEventListener("click", near);
 $("session").addEventListener("change", loadHall);
+$("venue").addEventListener("change", loadHall);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) plan(); });
 
 (async () => {
-  try { await loadSessions(); await loadHall(); }
+  try { await Promise.all([loadSessions(), loadVenues()]); await loadHall(); }
   catch (e) { status("Couldn't load the hall: " + e.message); }
 })();
 </script>

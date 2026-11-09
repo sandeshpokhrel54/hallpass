@@ -22,6 +22,7 @@ AISLE_M = 5.0  # aisle-to-aisle distance across walls
 MAX_SLOT = 19  # slots run 0..19
 WALL_LEN_M = MAX_SLOT * SLOT_M
 M_PER_DEG = 111_320.0  # metres per degree at the equator (for geo_point)
+FLOOR_CHANGE_M = 40.0  # lift/stairs ride, expressed as equivalent walking metres
 
 
 @dataclass(frozen=True)
@@ -30,12 +31,18 @@ class Spot:
     aisle: int
     x: float  # metres along the aisle
     y: float  # metres across the hall
+    floor: int = 0  # each floor/room is its own grid, joined by a lift at the front
 
 
-def spot(row: int, slot: int, board: int | None = None) -> Spot:
+def lift(floor: int) -> Spot:
+    """The lift/stairs on a floor: front aisle, middle of the walls."""
+    return Spot(board=-1, aisle=0, x=WALL_LEN_M / 2, y=0.0, floor=floor)
+
+
+def spot(row: int, slot: int, board: int | None = None, floor: int = 0) -> Spot:
     aisle = row // 2
     return Spot(board=board if board is not None else row * 100 + slot,
-                aisle=aisle, x=slot * SLOT_M, y=aisle * AISLE_M)
+                aisle=aisle, x=slot * SLOT_M, y=aisle * AISLE_M, floor=floor)
 
 
 def spot_for_board(board: int) -> Spot | None:
@@ -55,8 +62,7 @@ def geo_point(s: Spot) -> dict[str, float]:
     return {"lat": round(s.y / M_PER_DEG, 9), "lon": round(s.x / M_PER_DEG, 9)}
 
 
-def walk_m(a: Spot, b: Spot) -> float:
-    """Estimated walking distance in metres."""
+def _floor_walk(a: Spot, b: Spot) -> float:
     if a.aisle == b.aisle:
         return abs(a.x - b.x)
     around_left = a.x + b.x
@@ -64,12 +70,27 @@ def walk_m(a: Spot, b: Spot) -> float:
     return abs(a.y - b.y) + min(around_left, around_right)
 
 
-def waypoints(a: Spot, b: Spot) -> list[tuple[float, float]]:
-    """Corner points of the walk from a to b, for drawing the route."""
+def walk_m(a: Spot, b: Spot) -> float:
+    """Estimated walking distance in metres (via the lift when floors differ)."""
+    if a.floor == b.floor:
+        return _floor_walk(a, b)
+    return _floor_walk(a, lift(a.floor)) + FLOOR_CHANGE_M + _floor_walk(lift(b.floor), b)
+
+
+def _floor_points(a: Spot, b: Spot) -> list[tuple[float, float, int]]:
+    f = a.floor
     if a.aisle == b.aisle:
-        return [(a.x, a.y), (b.x, b.y)]
+        return [(a.x, a.y, f), (b.x, b.y, f)]
     end = 0.0 if a.x + b.x <= 2 * WALL_LEN_M - a.x - b.x else WALL_LEN_M
-    return [(a.x, a.y), (end, a.y), (end, b.y), (b.x, b.y)]
+    return [(a.x, a.y, f), (end, a.y, f), (end, b.y, f), (b.x, b.y, f)]
+
+
+def waypoints(a: Spot, b: Spot) -> list[tuple[float, float, int]]:
+    """Points (x, y, floor) of the walk from a to b, for drawing the route.
+    A floor change appears as consecutive points on different floors (the lift)."""
+    if a.floor == b.floor:
+        return _floor_points(a, b)
+    return _floor_points(a, lift(a.floor)) + _floor_points(lift(b.floor), b)
 
 
 def route_length(order: list[Spot]) -> float:

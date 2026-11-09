@@ -98,3 +98,20 @@ def test_search_body_three_way_and_optional_rerank():
     assert fields[1:] == ["semantic_content", "semantic_dense"]
     rr = search_body("diffusion", "S1", 10, rerank=True)["retriever"]["text_similarity_reranker"]
     assert rr["field"] == "title" and rr["retriever"]["rrf"]
+
+
+def test_route_across_floors_reports_floor_changes():
+    r = client.post("/route", json={"boards": [305, 3305], "venue": "demo-two-floors"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["floor_changes"] == 1
+    assert {p[2] for leg in body["legs"] for p in leg} == {0, 1}
+
+
+def test_unknown_venue_is_422():
+    assert client.post("/route", json={"boards": [305], "venue": "nope"}).status_code == 422
+
+
+def test_venues_lists_demo():
+    ids = [v["id"] for v in client.get("/venues").json()]
+    assert "neurips-2025" in ids and "demo-two-floors" in ids
