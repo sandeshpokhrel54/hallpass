@@ -10,8 +10,9 @@
      NeurIPS-style sky blue for the route, amber reserved for "you are here". */
   :root {
     --bg: #f8fafc; --panel: #ffffff; --ink: #1e293b; --muted: #64748b; --line: #e2e8f0;
-    --accent: #1b427d; --accent-ink: #ffffff; --route: #0284c7; --you: #d97706;
-    --board: #e2e8f0; --focus: #0ea5e9;
+    /* --you and --focus are the -700 shades so text and focus rings meet WCAG AA on white. */
+    --accent: #1b427d; --accent-ink: #ffffff; --route: #0284c7; --you: #b45309;
+    --board: #e2e8f0; --focus: #0369a1;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
