@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from hallpass.boards import parse_board
+from hallpass.layout import geo_point, spot
 
 VIRTUAL_SITE = "https://neurips.cc"
 
@@ -25,6 +26,7 @@ def to_doc(rec: dict[str, Any]) -> dict[str, Any] | None:
     session = rec["session"]
     board = parse_board(_clean(rec.get("poster_position")))
     virtual = _clean(rec.get("virtualsite_url"))
+    where = spot(board.row, board.slot, board.number) if board and board.row is not None else None
 
     return {
         "id": str(rec["id"]),
@@ -48,6 +50,9 @@ def to_doc(rec: dict[str, Any]) -> dict[str, Any] | None:
         "slot": board.slot if board else None,
         "wall": board.wall if board else None,
         "side": board.side if board else None,
+        "aisle": where.aisle if where else None,
+        # Indoor position mapped onto lat/lon so geo distance and decay queries work.
+        "loc": geo_point(where) if where else None,
         "openreview_url": _clean(rec.get("paper_url")),
         "virtual_url": f"{VIRTUAL_SITE}{virtual}" if virtual else None,
     }

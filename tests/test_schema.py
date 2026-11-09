@@ -28,6 +28,8 @@ def test_poster_maps_to_doc():
     assert d["kind"] == "Spotlight Poster"
     assert d["venue"] == "San Diego"
     assert (d["row"], d["slot"], d["wall"]) == (34, 7, 17)
+    assert d["aisle"] == 17
+    assert d["loc"]["lat"] > 0 and d["loc"]["lon"] > 0
     assert d["virtual_url"] == "https://neurips.cc/virtual/2025/poster/1"
 
 

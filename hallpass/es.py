@@ -36,6 +36,8 @@ MAPPINGS: dict[str, Any] = {
         "slot": {"type": "integer"},
         "wall": {"type": "integer"},
         "side": {"type": "keyword"},
+        "aisle": {"type": "integer"},
+        "loc": {"type": "geo_point"},
         "openreview_url": {"type": "keyword", "index": False},
         "virtual_url": {"type": "keyword", "index": False},
     }
@@ -57,6 +59,27 @@ def create_index(es: Elasticsearch, recreate: bool = False) -> None:
             return
         es.indices.delete(index=INDEX)
     es.indices.create(index=INDEX, mappings=MAPPINGS)
+
+
+# Walking distance is never shorter than straight-line distance, so every poster
+# within NEAR_RADIUS_M on foot is inside this straight-line radius. Elasticsearch
+# finds those candidates; the API then re-ranks them by real walking distance
+# (around wall ends), which a straight-line geo query can't express.
+NEAR_RADIUS_M = 50
+NEAR_CANDIDATES = 400
+
+
+def near_candidates_body(
+    origin: dict[str, float], session: str, q: str | None = None
+) -> dict[str, Any]:
+    filters = [
+        {"term": {"session": session}},
+        {"geo_distance": {"distance": f"{NEAR_RADIUS_M}m", "loc": origin}},
+    ]
+    query: dict[str, Any] = {"bool": {"filter": filters}}
+    if q:
+        query["bool"]["must"] = {"semantic": {"field": "semantic_content", "query": q}}
+    return {"query": query, "size": NEAR_CANDIDATES, "_source": SOURCE_FIELDS}
 
 
 def search_body(q: str, session: str | None = None, size: int = 20) -> dict[str, Any]:
