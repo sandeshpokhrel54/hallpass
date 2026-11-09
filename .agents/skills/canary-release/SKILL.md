@@ -34,7 +34,7 @@ Push the change and follow the `ship` skill through step 3 (build, sync). Then c
 
 - `get_resource` on the Rollout (`group: argoproj.io`): check that the canary ReplicaSet's pods are ready.
 - `issues` for the namespace must not list the Rollout or its pods.
-- Call `curl -s https://<team>.cnh.radarhq.io/` about 8 times. None may be errors. At 25%, some answers usually show the new version (the starter prints `version <sha>`). If none of the 8 do, that's chance (about 1 time in 10), not a failure: try 8 more, or read the canary pod's logs. Only errors fail this check.
+- Call `curl -s https://<team>.cnh.radarhq.io/` about 8 times. None may be errors. At 25%, some answers usually show the new version (HallPass returns JSON with `"version": "<sha>"`). If none of the 8 do, that's chance (about 1 time in 10), not a failure: try 8 more, or read the canary pod's logs. Only errors fail this check.
 
 If anything fails, go to step 4. Show the person what you saw, and promote only when they agree, unless they've already told you to promote a healthy canary.
 
