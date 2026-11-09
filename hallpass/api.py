@@ -89,9 +89,29 @@ def _with_distance(hit: dict, here: layout.Spot) -> dict:
     where = layout.spot_for_board(src["board"]) if src.get("board") else None
     return {
         "score": hit.get("_score"),
-        "walk_m": round(layout.walk_m(here, where)) if where else None,
+        "walk_m": round(layout.walk_m(here, where), 1) if where else None,
         **src,
     }
+
+
+def _walk_decay(walk: float, offset: float = 6.0, scale: float = 20.0, decay: float = 0.5) -> float:
+    """Gaussian decay on walking metres (same shape as Elasticsearch's gauss)."""
+    d = max(0.0, walk - offset)
+    return decay ** ((d / scale) ** 2)
+
+
+def rank_near(hits: list[dict], here: layout.Spot, with_query: bool, size: int) -> list[dict]:
+    """Re-rank candidates by real walking distance: nearest first, or
+    relevance x walking-distance decay when there's a query."""
+    rows = [_with_distance(h, here) for h in hits]
+    rows = [r for r in rows if r["walk_m"] is not None and r["walk_m"] <= hes.NEAR_RADIUS_M]
+    if with_query:
+        for r in rows:
+            r["score"] = (r["score"] or 0.0) * _walk_decay(r["walk_m"])
+        rows.sort(key=lambda r: -r["score"])
+    else:
+        rows.sort(key=lambda r: r["walk_m"])
+    return rows[:size]
 
 
 @app.get("/near")
@@ -101,11 +121,11 @@ def near(
     q: str | None = Query(None, min_length=2, description="optional: what you're interested in"),
     size: int = Query(10, ge=1, le=50),
 ) -> list[dict]:
-    """What's worth seeing near me right now: nearest posters, or relevant-and-near with q."""
+    """What's worth seeing within a short walk: nearest posters, or relevant-and-near with q."""
     here = _spot_or_422(board)
-    body = hes.near_body(layout.geo_point(here), session, q, size)
+    body = hes.near_candidates_body(layout.geo_point(here), session, q)
     resp = es().search(index=hes.INDEX, body=body)
-    return [_with_distance(h, here) for h in resp["hits"]["hits"]]
+    return rank_near(resp["hits"]["hits"], here, bool(q), size)
 
 
 class RouteRequest(BaseModel):

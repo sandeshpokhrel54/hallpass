@@ -47,3 +47,26 @@ def test_route_from_start_excludes_start():
     stops = [S(b) for b in (1210, 1215, 4000)]
     got = plan_route(stops, start=S(1205))
     assert [s.board for s in got][:2] == [1210, 1215]
+
+
+def test_out_of_range_slot_has_no_spot():
+    assert spot_for_board(150) is None
+    assert spot_for_board(1299) is None
+    assert spot_for_board(119) is not None
+
+
+def test_route_with_start_is_near_optimal():
+    start = S(2505)
+    stops = [S(b) for b in (4902, 105, 3410, 1218, 2700, 5003, 2510)]
+    best = min(route_length([start, *p]) for p in itertools.permutations(stops))
+    got = plan_route(stops, start=start)
+    assert route_length([start, *got]) <= best * 1.15
+
+
+def test_route_handles_max_stops_quickly():
+    import time
+    stops = [S(r * 100 + s) for r in range(1, 56, 4) for s in range(0, 20, 5)][:60]
+    t = time.perf_counter()
+    got = plan_route(stops)
+    assert len(got) == len(stops)
+    assert time.perf_counter() - t < 1.0

@@ -39,10 +39,13 @@ def spot(row: int, slot: int, board: int | None = None) -> Spot:
 
 
 def spot_for_board(board: int) -> Spot | None:
-    """Spot for a 3-4 digit board number (row*100+slot); None for plain numbering."""
+    """Spot for a 3-4 digit board number (row*100+slot); None for plain numbering
+    or a slot outside the modelled wall (which would give negative distances)."""
     if board < 100:
         return None
     row, slot = divmod(board, 100)
+    if slot > MAX_SLOT:
+        return None
     return spot(row, slot, board)
 
 
@@ -95,15 +98,26 @@ def plan_route(stops: list[Spot], start: Spot | None = None) -> list[Spot]:
         remaining.remove(nxt)
         cur = nxt
 
-    def cost(path: list[Spot]) -> float:
-        return route_length([start, *path] if start else path)
+    # 2-opt: reversing order[i..j] only changes the edge into i and the edge out
+    # of j (walk_m is symmetric), so compare just those two: O(1) per candidate.
+    def before(i: int) -> Spot | None:
+        return order[i - 1] if i > 0 else start
+
+    def after(j: int) -> Spot | None:
+        return order[j + 1] if j + 1 < len(order) else None
+
+    def edge(a: Spot | None, b: Spot | None) -> float:
+        return walk_m(a, b) if a is not None and b is not None else 0.0
 
     improved = True
     while improved:
         improved = False
         for i in range(len(order) - 1):
             for j in range(i + 1, len(order)):
-                cand = order[:i] + order[i : j + 1][::-1] + order[j + 1 :]
-                if cost(cand) < cost(order) - 1e-9:
-                    order, improved = cand, True
+                p, n = before(i), after(j)
+                old = edge(p, order[i]) + edge(order[j], n)
+                new = edge(p, order[j]) + edge(order[i], n)
+                if new < old - 1e-9:
+                    order[i : j + 1] = order[i : j + 1][::-1]
+                    improved = True
     return order
