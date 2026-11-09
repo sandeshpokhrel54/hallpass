@@ -160,7 +160,13 @@ async function loadHall() {
   ]);
   const areas = [...new Set(hall.map((p) => p.topic_area).filter(Boolean))].sort();
   areaColor = Object.fromEntries(areas.map((a, i) => [a, PALETTE[i % PALETTE.length]]));
-  $("legend").innerHTML = areas.map((a) => `<span style="--c:${areaColor[a]}">${a}</span>`).join("");
+  const legend = $("legend");
+  legend.replaceChildren(...areas.map((a) => {
+    const s = document.createElement("span");
+    s.style.setProperty("--c", areaColor[a]);
+    s.textContent = a;  // scraped data: never as HTML
+    return s;
+  }));
   routeBoards = []; youAt = null;
   $("results").innerHTML = "";
   draw([]);
@@ -239,16 +245,23 @@ function renderList(items, numbered) {
     const n = numbered && p.board ? routeBoards.indexOf(p.board) + 1 : 0;
     const where = p.board_label ? `Board ${p.board_label}` : "No board number";
     const walk = p.walk_m != null ? ` · ${Math.round(p.walk_m)} m walk` : "";
-    const link = p.openreview_url ? ` · <a href="${p.openreview_url}" target="_blank" rel="noopener">paper</a>` : "";
     li.innerHTML = `
       <div class="badge ${n ? "" : "off"}" aria-hidden="true">${n || "·"}</div>
       <div>
         <div class="title"></div>
-        <div class="meta">${where}${walk} · ${p.topic_area || "Other"}${link}</div>
+        <div class="meta where"></div>
         <div class="meta authors"></div>
         <label class="visit"><input type="checkbox" ${isVisited(p.id) ? "checked" : ""}> Visited</label>
       </div>`;
     li.querySelector(".title").textContent = (n ? `Stop ${n}: ` : "") + p.title;
+    // Scraped fields go in as text; links only if they're http(s).
+    const meta = li.querySelector(".where");
+    meta.textContent = `${where}${walk} · ${p.topic_area || "Other"}`;
+    if (p.openreview_url && /^https?:\/\//i.test(p.openreview_url)) {
+      meta.append(" · ");
+      meta.append(Object.assign(document.createElement("a"),
+        { href: p.openreview_url, target: "_blank", rel: "noopener", textContent: "paper" }));
+    }
     li.querySelector(".authors").textContent = (p.authors || []).slice(0, 4).join(", ");
     li.querySelector("input").addEventListener("change", (e) => {
       setVisited(p.id, e.target.checked);
