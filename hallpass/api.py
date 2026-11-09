@@ -5,6 +5,7 @@ Run:  uv run uvicorn hallpass.api:app --reload
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -60,13 +61,36 @@ VERSION = os.getenv("APP_VERSION", "dev")
 
 
 INDEX_HTML = Path(__file__).parent / "static" / "index.html"
+DASH0_SDK = "https://cdn.jsdelivr.net/npm/@dash0/sdk-web@0.28.3/dist/dash0.iife.js"
+
+
+def _rum_snippet() -> str:
+    """Dash0 browser monitoring, only when a dedicated ingest-only RUM token is set.
+    The token is public by design (it ships to browsers) but stays out of git.
+    Same-origin API calls carry trace context, so browser and backend spans join up."""
+    token = os.getenv("DASH0_RUM_TOKEN")
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if not (token and endpoint):
+        return ""
+    cfg = json.dumps({
+        "serviceName": "hallpass-web",
+        "serviceVersion": VERSION,
+        "environment": os.getenv("DEPLOY_ENV", "local"),
+        "endpoint": {"url": endpoint.rstrip("/"), "authToken": token},
+    }).replace("</", "<\\/")
+    return (
+        "<script>(function(d,a,s,h,z){d[a]||((z=d[a]=function(){h.push(arguments)}),"
+        "(z._t=new Date()),(z._v=1),(h=z._q=[]))})(window,'dash0');"
+        f"dash0('init',{cfg});</script>\n"
+        f'<script defer crossorigin="anonymous" src="{DASH0_SDK}"></script>'
+    )
 
 
 @app.get("/", response_model=None)
 def root(request: Request) -> dict | HTMLResponse:
     """Browsers get the hall map; curl and deploy checks get the JSON version."""
     if "text/html" in request.headers.get("accept", ""):
-        return HTMLResponse(INDEX_HTML.read_text())
+        return HTMLResponse(INDEX_HTML.read_text().replace("<!--DASH0_RUM-->", _rum_snippet()))
     return {"app": "hallpass", "version": VERSION}
 
 

@@ -115,3 +115,14 @@ def test_unknown_venue_is_422():
 def test_venues_lists_demo():
     ids = [v["id"] for v in client.get("/venues").json()]
     assert "neurips-2025" in ids and "demo-two-floors" in ids
+
+
+def test_rum_snippet_only_with_token(monkeypatch):
+    monkeypatch.delenv("DASH0_RUM_TOKEN", raising=False)
+    html = client.get("/", headers={"accept": "text/html"}).text
+    assert "dash0" not in html
+    monkeypatch.setenv("DASH0_RUM_TOKEN", "tok</script><x>")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://ingress.example")
+    html = client.get("/", headers={"accept": "text/html"}).text
+    assert "dash0('init'" in html and "@dash0/sdk-web@0.28.3" in html
+    assert "tok</script>" not in html  # escaped, can't break out of the script tag
