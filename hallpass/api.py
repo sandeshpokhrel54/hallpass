@@ -5,7 +5,9 @@ Run:  uv run uvicorn hallpass.api:app --reload
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Query
+import os
+
+from fastapi import FastAPI, HTTPException, Query
 
 from hallpass import es as hes
 
@@ -20,8 +22,26 @@ def es():
     return _es
 
 
-@app.get("/health")
-def health() -> dict:
+VERSION = os.getenv("APP_VERSION", "dev")
+
+
+@app.get("/")
+def root() -> dict:
+    return {"app": "hallpass", "version": VERSION}
+
+
+@app.get("/healthz")
+def healthz() -> dict:
+    """Liveness: the process is up."""
+    return {"ok": True}
+
+
+@app.get("/readyz")
+def readyz() -> dict:
+    """Readiness: configured to reach Elasticsearch. Deliberately no network call,
+    so a brief Elasticsearch blip doesn't pull every pod out of the Service."""
+    if not (os.getenv("ES_URL") and os.getenv("ES_API_KEY")):
+        raise HTTPException(503, "ES_URL / ES_API_KEY not configured")
     return {"ok": True}
 
 

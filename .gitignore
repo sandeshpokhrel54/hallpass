@@ -15,3 +15,6 @@ __pycache__/
 data/raw/
 
 .DS_Store
+*kubeconfig*
+*.pem
+*.key

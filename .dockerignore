@@ -1,0 +1,12 @@
+# Kept out of the image build context.
+.git
+**/node_modules
+**/*kubeconfig*
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+.venv
+data
+**/__pycache__
+.pytest_cache

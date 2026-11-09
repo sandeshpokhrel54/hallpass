@@ -12,5 +12,17 @@ def test_search_rejects_out_of_range_size(size):
     assert client.get("/search", params={"q": "diffusion", "size": size}).status_code == 422
 
 
-def test_health():
-    assert client.get("/health").json() == {"ok": True}
+def test_healthz():
+    assert client.get("/healthz").json() == {"ok": True}
+
+
+def test_root_reports_version():
+    assert client.get("/").json()["app"] == "hallpass"
+
+
+def test_readyz_requires_es_config(monkeypatch):
+    monkeypatch.delenv("ES_URL", raising=False)
+    assert client.get("/readyz").status_code == 503
+    monkeypatch.setenv("ES_URL", "https://es.example")
+    monkeypatch.setenv("ES_API_KEY", "x")
+    assert client.get("/readyz").status_code == 200
