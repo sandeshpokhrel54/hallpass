@@ -51,6 +51,12 @@ spec:
                   name: dash0-credentials
                   key: auth-token
                   optional: true
+            - name: DASH0_RUM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dash0-credentials
+                  key: rum-token
+                  optional: true
             - name: DEPLOY_ENV
               value: "hackathon"
           resources:

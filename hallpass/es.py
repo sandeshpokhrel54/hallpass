@@ -75,12 +75,20 @@ NEAR_CANDIDATES = 400
 
 
 def near_candidates_body(
-    origin: dict[str, float], session: str, q: str | None = None
+    areas: list[tuple[dict[str, float], float]], session: str, q: str | None = None
 ) -> dict[str, Any]:
-    filters = [
-        {"term": {"session": session}},
-        {"geo_distance": {"distance": f"{NEAR_RADIUS_M}m", "loc": origin}},
-    ]
+    """Candidates inside any of the given (origin, radius_m) circles, in indexed
+    (single-hall) coordinates."""
+    within_any = {
+        "bool": {
+            "should": [
+                {"geo_distance": {"distance": f"{max(radius, 1):.0f}m", "loc": origin}}
+                for origin, radius in areas
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+    filters = [{"term": {"session": session}}, within_any]
     query: dict[str, Any] = {"bool": {"filter": filters}}
     if q:
         query["bool"]["must"] = {"semantic": {"field": "semantic_content", "query": q}}

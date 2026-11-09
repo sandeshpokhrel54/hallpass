@@ -70,3 +70,28 @@ def test_route_handles_max_stops_quickly():
     got = plan_route(stops)
     assert len(got) == len(stops)
     assert time.perf_counter() - t < 1.0
+
+
+def test_cross_floor_walk_goes_via_the_lift():
+    from hallpass.layout import FLOOR_CHANGE_M, lift, spot
+    a, b = spot(2, 10, floor=0), spot(2, 10, floor=1)
+    assert walk_m(a, b) == 2 * walk_m(a, lift(0)) + FLOOR_CHANGE_M
+
+
+def test_route_minimises_floor_changes():
+    from hallpass.venues import VENUES
+    v = VENUES["demo-two-floors"]
+    boards = [305, 3305, 410, 3410, 515, 3515]  # alternate floors
+    order = plan_route([v.spot(b) for b in boards])
+    floors = [s.floor for s in order]
+    changes = sum(1 for x, y in zip(floors, floors[1:]) if x != y)
+    assert changes == 1
+
+
+def test_demo_venue_splits_rows_onto_level_2():
+    from hallpass.venues import VENUES
+    v = VENUES["demo-two-floors"]
+    assert v.spot(2805).floor == 0
+    s = v.spot(2905)
+    assert s.floor == 1 and s.aisle == 0
+    assert v.local_row(2905) == (1, 1)

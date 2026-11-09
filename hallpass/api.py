@@ -5,6 +5,7 @@ Run:  uv run uvicorn hallpass.api:app --reload
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -18,6 +19,8 @@ from pydantic import BaseModel, Field
 
 from hallpass import es as hes
 from hallpass import layout, telemetry
+from hallpass.venues import DEFAULT as DEFAULT_VENUE
+from hallpass.venues import VENUES, Venue
 
 log = logging.getLogger("hallpass")
 app = FastAPI(title="HallPass")
@@ -58,13 +61,36 @@ VERSION = os.getenv("APP_VERSION", "dev")
 
 
 INDEX_HTML = Path(__file__).parent / "static" / "index.html"
+DASH0_SDK = "https://cdn.jsdelivr.net/npm/@dash0/sdk-web@0.28.3/dist/dash0.iife.js"
+
+
+def _rum_snippet() -> str:
+    """Dash0 browser monitoring, only when a dedicated ingest-only RUM token is set.
+    The token is public by design (it ships to browsers) but stays out of git.
+    Same-origin API calls carry trace context, so browser and backend spans join up."""
+    token = os.getenv("DASH0_RUM_TOKEN")
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if not (token and endpoint):
+        return ""
+    cfg = json.dumps({
+        "serviceName": "hallpass-web",
+        "serviceVersion": VERSION,
+        "environment": os.getenv("DEPLOY_ENV", "local"),
+        "endpoint": {"url": endpoint.rstrip("/"), "authToken": token},
+    }).replace("</", "<\\/")
+    return (
+        "<script>(function(d,a,s,h,z){d[a]||((z=d[a]=function(){h.push(arguments)}),"
+        "(z._t=new Date()),(z._v=1),(h=z._q=[]))})(window,'dash0');"
+        f"dash0('init',{cfg});</script>\n"
+        f'<script defer crossorigin="anonymous" src="{DASH0_SDK}"></script>'
+    )
 
 
 @app.get("/", response_model=None)
 def root(request: Request) -> dict | HTMLResponse:
     """Browsers get the hall map; curl and deploy checks get the JSON version."""
     if "text/html" in request.headers.get("accept", ""):
-        return HTMLResponse(INDEX_HTML.read_text())
+        return HTMLResponse(INDEX_HTML.read_text().replace("<!--DASH0_RUM-->", _rum_snippet()))
     return {"app": "hallpass", "version": VERSION}
 
 
@@ -117,16 +143,27 @@ def search(
     return out
 
 
-def _spot_or_422(board: int) -> layout.Spot:
-    where = layout.spot_for_board(board)
+def _venue(venue_id: str) -> Venue:
+    if venue_id not in VENUES:
+        raise HTTPException(422, f"unknown venue {venue_id!r}; see /venues")
+    return VENUES[venue_id]
+
+
+@app.get("/venues")
+def venues() -> list[dict]:
+    return [v.public() for v in VENUES.values()]
+
+
+def _spot_or_422(board: int, venue: Venue = VENUES[DEFAULT_VENUE]) -> layout.Spot:
+    where = venue.spot(board)
     if where is None:
         raise HTTPException(422, f"board {board} has no hall position (expected row*100+slot)")
     return where
 
 
-def _with_distance(hit: dict, here: layout.Spot) -> dict:
+def _with_distance(hit: dict, here: layout.Spot, venue: Venue = VENUES[DEFAULT_VENUE]) -> dict:
     src = hit["_source"]
-    where = layout.spot_for_board(src["board"]) if src.get("board") else None
+    where = venue.spot(src["board"]) if src.get("board") else None
     return {
         "score": hit.get("_score"),
         "walk_m": round(layout.walk_m(here, where), 1) if where else None,
@@ -140,10 +177,13 @@ def _walk_decay(walk: float, offset: float = 6.0, scale: float = 20.0, decay: fl
     return decay ** ((d / scale) ** 2)
 
 
-def rank_near(hits: list[dict], here: layout.Spot, with_query: bool, size: int) -> list[dict]:
+def rank_near(
+    hits: list[dict], here: layout.Spot, with_query: bool, size: int,
+    venue: Venue = VENUES[DEFAULT_VENUE],
+) -> list[dict]:
     """Re-rank candidates by real walking distance: nearest first, or
     relevance x walking-distance decay when there's a query."""
-    rows = [_with_distance(h, here) for h in hits]
+    rows = [_with_distance(h, here, venue) for h in hits]
     rows = [r for r in rows if r["walk_m"] is not None and r["walk_m"] <= hes.NEAR_RADIUS_M]
     if with_query:
         for r in rows:
@@ -160,14 +200,18 @@ def near(
     session: str = Query(...),
     q: str | None = Query(None, min_length=2, description="optional: what you're interested in"),
     size: int = Query(10, ge=1, le=50),
+    venue: str = Query(DEFAULT_VENUE),
 ) -> list[dict]:
     """What's worth seeing within a short walk: nearest posters, or relevant-and-near with q."""
     started = time.perf_counter()
-    here = _spot_or_422(board)
-    body = hes.near_candidates_body(layout.geo_point(here), session, q)
+    v = _venue(venue)
+    here = _spot_or_422(board, v)
+    # Pre-filter in the index's single-hall coordinates (including the other
+    # floor's lift area when it's within walking budget); rank with venue geometry.
+    body = hes.near_candidates_body(v.search_areas(here, hes.NEAR_RADIUS_M), session, q)
     resp = es().search(index=hes.INDEX, body=body)
     hits = resp["hits"]["hits"]
-    out = rank_near(hits, here, bool(q), size)
+    out = rank_near(hits, here, bool(q), size, v)
     _observe("near", len(out), started, session=session, board=board, candidates=len(hits), with_query=bool(q))
     return out
 
@@ -175,14 +219,16 @@ def near(
 class RouteRequest(BaseModel):
     boards: list[int] = Field(..., min_length=1, max_length=60)
     start: int | None = Field(None, description="board you're starting from")
+    venue: str = DEFAULT_VENUE
 
 
 @app.post("/route")
 def route(req: RouteRequest) -> dict:
     """Order boards into a short walk through the hall (no Elasticsearch needed)."""
     started = time.perf_counter()
-    stops = [_spot_or_422(b) for b in req.boards]
-    start = _spot_or_422(req.start) if req.start is not None else None
+    v = _venue(req.venue)
+    stops = [_spot_or_422(b, v) for b in req.boards]
+    start = _spot_or_422(req.start, v) if req.start is not None else None
     with telemetry.tracer.start_as_current_span("plan_route") as span:
         span.set_attribute("hallpass.stops", len(stops))
         order = layout.plan_route(stops, start)
@@ -190,13 +236,16 @@ def route(req: RouteRequest) -> dict:
     legs = [layout.waypoints(a, b) for a, b in zip(path, path[1:])]
     total = round(layout.route_length(path))
     telemetry.route_length.record(total)
-    _observe("route", len(order), started, total_m=total)
-    return {"order": [s.board for s in order], "total_m": total, "legs": legs}
+    floor_changes = sum(1 for a, b in zip(path, path[1:]) if a.floor != b.floor)
+    _observe("route", len(order), started, total_m=total, venue=v.id, floor_changes=floor_changes)
+    return {"order": [s.board for s in order], "total_m": total, "legs": legs,
+            "floor_changes": floor_changes}
 
 
 @app.get("/hall")
-def hall(session: str) -> list[dict]:
+def hall(session: str, venue: str = Query(DEFAULT_VENUE)) -> list[dict]:
     """Every placed poster in a session, for drawing the map."""
+    v = _venue(venue)
     resp = es().search(
         index=hes.INDEX,
         query={"bool": {"filter": [{"term": {"session": session}}, {"exists": {"field": "row"}}]}},
@@ -208,6 +257,7 @@ def hall(session: str) -> list[dict]:
         src = h["_source"]
         if layout.spot_for_board(src["board"]) is None:
             continue
+        src["floor"], src["local_row"] = v.local_row(src["board"])
         src["authors"] = (src.get("authors") or [])[:3]
         out.append(src)
     return out

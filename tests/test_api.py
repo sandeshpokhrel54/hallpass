@@ -98,3 +98,69 @@ def test_search_body_three_way_and_optional_rerank():
     assert fields[1:] == ["semantic_content", "semantic_dense"]
     rr = search_body("diffusion", "S1", 10, rerank=True)["retriever"]["text_similarity_reranker"]
     assert rr["field"] == "title" and rr["retriever"]["rrf"]
+
+
+def test_route_across_floors_reports_floor_changes():
+    r = client.post("/route", json={"boards": [305, 3305], "venue": "demo-two-floors"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["floor_changes"] == 1
+    assert {p[2] for leg in body["legs"] for p in leg} == {0, 1}
+
+
+def test_unknown_venue_is_422():
+    assert client.post("/route", json={"boards": [305], "venue": "nope"}).status_code == 422
+
+
+def test_venues_lists_demo():
+    ids = [v["id"] for v in client.get("/venues").json()]
+    assert "neurips-2025" in ids and "demo-two-floors" in ids
+
+
+def test_rum_snippet_only_with_token(monkeypatch):
+    monkeypatch.delenv("DASH0_RUM_TOKEN", raising=False)
+    html = client.get("/", headers={"accept": "text/html"}).text
+    assert "dash0" not in html
+    monkeypatch.setenv("DASH0_RUM_TOKEN", "tok</script><x>")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://ingress.example")
+    html = client.get("/", headers={"accept": "text/html"}).text
+    assert "dash0('init'" in html and "@dash0/sdk-web@0.28.3" in html
+    assert "tok</script>" not in html  # escaped, can't break out of the script tag
+
+
+def test_near_two_floor_venue_searches_indexed_coordinates(monkeypatch):
+    """Level-2 board 3305 must be searched around its indexed (single-hall)
+    position, and its Level-2 neighbours must come back ranked."""
+    import hallpass.api as api
+    from hallpass import layout
+    from hallpass.schema import to_doc  # noqa: F401  (indexed loc comes from layout.spot)
+
+    seen = {}
+
+    class FakeES:
+        def search(self, index, body):
+            seen["body"] = body
+            hits = [{"_score": 1.0, "_source": {"board": b, "title": str(b)}} for b in (3306, 3310, 505)]
+            return {"hits": {"hits": hits}}
+
+    monkeypatch.setattr(api, "_es", FakeES())
+    r = client.get("/near", params={"board": 3305, "session": "S", "venue": "demo-two-floors"})
+    assert r.status_code == 200
+    should = seen["body"]["query"]["bool"]["filter"][1]["bool"]["should"]
+    centre = should[0]["geo_distance"]["loc"]
+    assert centre == layout.geo_point(layout.spot_for_board(3305))
+    boards = [x["board"] for x in r.json()]
+    assert boards[:2] == [3306, 3310]  # same floor, 3 m and 15 m
+    assert 505 not in boards  # Level 1, via the lift: too far
+
+
+def test_near_by_the_lift_also_searches_the_other_floor():
+    from hallpass import layout
+    from hallpass.venues import VENUES
+    v = VENUES["demo-two-floors"]
+    by_lift = v.spot(2909)  # Level 2, front aisle, next to the lift
+    areas = v.search_areas(by_lift, 50)
+    assert len(areas) == 2
+    assert areas[1][0] == v.indexed_geo(layout.lift(0))
+    far = v.spot(5501)
+    assert len(v.search_areas(far, 50)) == 1
