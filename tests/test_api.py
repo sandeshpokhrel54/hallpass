@@ -73,3 +73,17 @@ def test_near_with_query_balances_relevance_and_walk():
     rows = rank_near([_hit(1206, 0.5), _hit(1215, 1.0), _hit(1219, 0.9)], here, with_query=True, size=10)
     assert rows[0]["board"] == 1206  # 3 m and decent beats 30 m and great
     assert all(r["score"] <= 1.0 for r in rows)
+
+
+def test_elasticsearch_failure_is_a_502(monkeypatch):
+    from elasticsearch import ConnectionError as ESConnectionError
+
+    import hallpass.api as api
+
+    class Down:
+        def search(self, **kw):
+            raise ESConnectionError("connection refused")
+
+    monkeypatch.setattr(api, "_es", Down())
+    r = client.get("/search", params={"q": "diffusion"})
+    assert r.status_code == 502

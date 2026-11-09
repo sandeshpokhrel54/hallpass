@@ -34,6 +34,7 @@ def to_doc(rec: dict[str, Any]) -> dict[str, Any] | None:
         "abstract": abstract,
         # Embedded by Elasticsearch at index time (semantic_text field).
         "semantic_content": f"{title}\n\n{abstract}",
+        "semantic_dense": f"{title}\n\n{abstract}",
         "authors": [a.get("fullname") for a in authors if a.get("fullname")],
         "institutions": sorted({a["institution"] for a in authors if a.get("institution")}),
         "topic": topic,

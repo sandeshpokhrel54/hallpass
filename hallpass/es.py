@@ -10,7 +10,10 @@ from elasticsearch import Elasticsearch
 
 load_dotenv()
 
-INDEX = os.getenv("ES_INDEX", "hallpass-neurips-2025")
+INDEX = os.getenv("ES_INDEX", "hallpass-neurips-2025-v2")
+
+DENSE_MODEL = ".jina-embeddings-v5-text-small"
+RERANK_MODEL = ".jina-reranker-v3"
 
 MAPPINGS: dict[str, Any] = {
     "properties": {
@@ -20,6 +23,8 @@ MAPPINGS: dict[str, Any] = {
         # Uses the cluster's default inference endpoint (ELSER on Elastic Cloud),
         # so no external embedding API is needed.
         "semantic_content": {"type": "semantic_text"},
+        # Same text, embedded densely by Jina v5 (Elastic Inference Service).
+        "semantic_dense": {"type": "semantic_text", "inference_id": DENSE_MODEL},
         "authors": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
         "institutions": {"type": "keyword"},
         "topic": {"type": "keyword"},
@@ -43,7 +48,7 @@ MAPPINGS: dict[str, Any] = {
     }
 }
 
-SOURCE_FIELDS = [f for f in MAPPINGS["properties"] if f != "semantic_content"]
+SOURCE_FIELDS = [f for f in MAPPINGS["properties"] if not f.startswith("semantic_")]
 
 
 def client() -> Elasticsearch:
@@ -82,36 +87,48 @@ def near_candidates_body(
     return {"query": query, "size": NEAR_CANDIDATES, "_source": SOURCE_FIELDS}
 
 
-def search_body(q: str, session: str | None = None, size: int = 20) -> dict[str, Any]:
-    """Hybrid search: BM25 keyword + semantic (ELSER), fused with reciprocal rank fusion."""
+RERANK_WINDOW = 30
+
+
+def _filtered(query: dict[str, Any], filters: list[dict]) -> dict[str, Any]:
+    return {"standard": {"query": {"bool": {"must": query, "filter": filters}}}}
+
+
+def search_body(
+    q: str, session: str | None = None, size: int = 20, rerank: bool = True
+) -> dict[str, Any]:
+    """Three-way hybrid search, then a cross-encoder rerank, all in one Elasticsearch query.
+
+    Stage 1 (recall): three retrievers, fused with reciprocal rank fusion:
+      - BM25 keyword match on title / abstract / authors / topic
+      - ELSER learned-sparse semantic match (term expansion)
+      - Jina v5 dense embedding match
+    Stage 2 (precision): Jina reranker v3 re-reads the top RERANK_WINDOW candidates
+    against the query and produces the final order.
+    """
     filters = [{"term": {"session": session}}] if session else []
-    keyword = {
-        "standard": {
-            "query": {
-                "bool": {
-                    "must": {
-                        "multi_match": {
-                            "query": q,
-                            "fields": ["title^3", "abstract", "authors^2", "topic"],
-                        }
-                    },
-                    "filter": filters,
-                }
-            }
+    fused = {
+        "rrf": {
+            "retrievers": [
+                _filtered(
+                    {"multi_match": {"query": q, "fields": ["title^3", "abstract", "authors^2", "topic"]}},
+                    filters,
+                ),
+                _filtered({"semantic": {"field": "semantic_content", "query": q}}, filters),
+                _filtered({"semantic": {"field": "semantic_dense", "query": q}}, filters),
+            ],
+            "rank_window_size": 100,
         }
     }
-    semantic = {
-        "standard": {
-            "query": {
-                "bool": {
-                    "must": {"semantic": {"field": "semantic_content", "query": q}},
-                    "filter": filters,
-                }
+    retriever = fused
+    if rerank:
+        retriever = {
+            "text_similarity_reranker": {
+                "retriever": fused,
+                "field": "abstract",
+                "inference_id": RERANK_MODEL,
+                "inference_text": q,
+                "rank_window_size": max(RERANK_WINDOW, size),
             }
         }
-    }
-    return {
-        "retriever": {"rrf": {"retrievers": [keyword, semantic], "rank_window_size": 100}},
-        "size": size,
-        "_source": SOURCE_FIELDS,
-    }
+    return {"retriever": retriever, "size": size, "_source": SOURCE_FIELDS}

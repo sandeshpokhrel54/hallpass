@@ -5,17 +5,45 @@ Run:  uv run uvicorn hallpass.api:app --reload
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from pathlib import Path
 
+from elasticsearch import ApiError, TransportError
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from opentelemetry import trace
 from pydantic import BaseModel, Field
 
 from hallpass import es as hes
-from hallpass import layout
+from hallpass import layout, telemetry
 
+log = logging.getLogger("hallpass")
 app = FastAPI(title="HallPass")
+telemetry.setup(app)
+
+
+@app.exception_handler(ApiError)
+@app.exception_handler(TransportError)
+async def es_unavailable(request: Request, exc: Exception) -> JSONResponse:
+    """Elasticsearch failures become a clear 502 (and a logged, traced error), not a bare 500."""
+    log.error("elasticsearch error on %s: %s", request.url.path, exc)
+    trace.get_current_span().record_exception(exc)
+    return JSONResponse({"detail": "search backend unavailable, try again"}, status_code=502)
+
+
+def _observe(kind: str, n: int, started: float, **attrs) -> None:
+    span = trace.get_current_span()
+    span.set_attribute("hallpass.kind", kind)
+    span.set_attribute("hallpass.results", n)
+    for k, v in attrs.items():
+        if v is not None:
+            span.set_attribute(f"hallpass.{k}", v)
+    telemetry.searches.add(1, {"kind": kind, "empty": n == 0})
+    telemetry.results_returned.record(n, {"kind": kind})
+    log.info("%s returned %d results in %.0f ms", kind, n, (time.perf_counter() - started) * 1000,
+             extra={"hallpass.kind": kind, "hallpass.results": n, **{f"hallpass.{k}": v for k, v in attrs.items() if v is not None}})
 _es = None
 
 
@@ -81,8 +109,11 @@ def search(
     session: str | None = None,
     size: int = Query(20, ge=1, le=100),
 ) -> list[dict]:
+    started = time.perf_counter()
     resp = es().search(index=hes.INDEX, body=hes.search_body(q, session, size))
-    return [{"score": h["_score"], **h["_source"]} for h in resp["hits"]["hits"]]
+    out = [{"score": h["_score"], **h["_source"]} for h in resp["hits"]["hits"]]
+    _observe("search", len(out), started, session=session, query_chars=len(q))
+    return out
 
 
 def _spot_or_422(board: int) -> layout.Spot:
@@ -130,10 +161,14 @@ def near(
     size: int = Query(10, ge=1, le=50),
 ) -> list[dict]:
     """What's worth seeing within a short walk: nearest posters, or relevant-and-near with q."""
+    started = time.perf_counter()
     here = _spot_or_422(board)
     body = hes.near_candidates_body(layout.geo_point(here), session, q)
     resp = es().search(index=hes.INDEX, body=body)
-    return rank_near(resp["hits"]["hits"], here, bool(q), size)
+    hits = resp["hits"]["hits"]
+    out = rank_near(hits, here, bool(q), size)
+    _observe("near", len(out), started, session=session, board=board, candidates=len(hits), with_query=bool(q))
+    return out
 
 
 class RouteRequest(BaseModel):
@@ -144,16 +179,18 @@ class RouteRequest(BaseModel):
 @app.post("/route")
 def route(req: RouteRequest) -> dict:
     """Order boards into a short walk through the hall (no Elasticsearch needed)."""
+    started = time.perf_counter()
     stops = [_spot_or_422(b) for b in req.boards]
     start = _spot_or_422(req.start) if req.start is not None else None
-    order = layout.plan_route(stops, start)
+    with telemetry.tracer.start_as_current_span("plan_route") as span:
+        span.set_attribute("hallpass.stops", len(stops))
+        order = layout.plan_route(stops, start)
     path = [start, *order] if start else order
     legs = [layout.waypoints(a, b) for a, b in zip(path, path[1:])]
-    return {
-        "order": [s.board for s in order],
-        "total_m": round(layout.route_length(path)),
-        "legs": legs,
-    }
+    total = round(layout.route_length(path))
+    telemetry.route_length.record(total)
+    _observe("route", len(order), started, total_m=total)
+    return {"order": [s.board for s in order], "total_m": total, "legs": legs}
 
 
 @app.get("/hall")
