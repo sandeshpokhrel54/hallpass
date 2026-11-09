@@ -26,8 +26,9 @@ uv run uvicorn hallpass.api:app --reload
 ```
 
 ## Deploy (Kubernetes, via Radar + Argo CD)
-Every push to `main` builds an image to GHCR (`.github/workflows/deploy.yaml`) and Argo CD
-syncs `deploy/` into namespace `team-hallpass`, served at https://hallpass.cnh.radarhq.io.
+`main` is PR-only (Gitar reviews every PR). Each merge builds an image to GHCR
+(`.github/workflows/deploy.yaml`), which force-pushes the image-tag bump to the `deploy`
+branch; Argo CD tracks `deploy` and syncs `deploy/` into namespace `team-hallpass`, served at https://hallpass.cnh.radarhq.io.
 Infra scaffolding comes from [skyhook-io/cnh-starter](https://github.com/skyhook-io/cnh-starter).
 
 Elasticsearch credentials live only in a Kubernetes Secret, created by hand:
