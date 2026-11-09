@@ -50,6 +50,7 @@ def main() -> None:
     actions = ({"_index": hes.INDEX, "_id": d["id"], "_source": d} for d in docs)
     # Small chunks: each bulk request triggers ELSER inference on the cluster.
     ok, errors = helpers.bulk(es, actions, chunk_size=50, raise_on_error=False)
+    es.indices.refresh(index=hes.INDEX)  # make documents searchable right away
     print(f"indexed {ok}, errors {len(errors)}")
     for e in errors[:5]:
         print("  ", e)

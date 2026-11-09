@@ -20,6 +20,12 @@ def test_root_reports_version():
     assert client.get("/").json()["app"] == "hallpass"
 
 
+def test_root_serves_map_to_browsers():
+    r = client.get("/", headers={"accept": "text/html,application/xhtml+xml"})
+    assert r.status_code == 200
+    assert "<title>HallPass" in r.text
+
+
 def test_readyz_requires_es_config(monkeypatch):
     monkeypatch.delenv("ES_URL", raising=False)
     assert client.get("/readyz").status_code == 503
@@ -67,3 +73,28 @@ def test_near_with_query_balances_relevance_and_walk():
     rows = rank_near([_hit(1206, 0.5), _hit(1215, 1.0), _hit(1219, 0.9)], here, with_query=True, size=10)
     assert rows[0]["board"] == 1206  # 3 m and decent beats 30 m and great
     assert all(r["score"] <= 1.0 for r in rows)
+
+
+def test_elasticsearch_failure_is_a_502(monkeypatch):
+    from elasticsearch import ConnectionError as ESConnectionError
+
+    import hallpass.api as api
+
+    class Down:
+        def search(self, **kw):
+            raise ESConnectionError("connection refused")
+
+    monkeypatch.setattr(api, "_es", Down())
+    r = client.get("/search", params={"q": "diffusion"})
+    assert r.status_code == 502
+
+
+def test_search_body_three_way_and_optional_rerank():
+    from hallpass.es import search_body
+    plain = search_body("diffusion", "S1", 10)
+    rrf = plain["retriever"]["rrf"]["retrievers"]
+    assert len(rrf) == 3
+    fields = [r["standard"]["query"]["bool"]["must"].get("semantic", {}).get("field") for r in rrf]
+    assert fields[1:] == ["semantic_content", "semantic_dense"]
+    rr = search_body("diffusion", "S1", 10, rerank=True)["retriever"]["text_similarity_reranker"]
+    assert rr["field"] == "title" and rr["retriever"]["rrf"]

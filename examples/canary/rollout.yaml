@@ -36,7 +36,7 @@ spec:
             - name: TEAM_NAME
               value: "hallpass"
             - name: ES_INDEX
-              value: "hallpass-neurips-2025"
+              value: "hallpass-neurips-2025-v2"
             # Same Secret as deploy/deployment.yaml; keep the two in sync.
             - name: ES_URL
               valueFrom:
@@ -48,6 +48,21 @@ spec:
                 secretKeyRef:
                   name: app-credentials
                   key: es-api-key
+            # Dash0 (optional: pods start without it; telemetry is then off).
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: dash0-credentials
+                  key: otlp-endpoint
+                  optional: true
+            - name: DASH0_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dash0-credentials
+                  key: auth-token
+                  optional: true
+            - name: DEPLOY_ENV
+              value: "hackathon"
           resources:
             requests:
               cpu: 100m

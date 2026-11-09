@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HallPass</title>
+<style>
+  :root {
+    --bg: #f7f6f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #5f5d57; --line: #dedbd2;
+    --accent: #c2410c; --accent-ink: #ffffff; --route: #c2410c; --you: #1d4ed8;
+    --board: #e9e6dd; --focus: #1d4ed8;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --panel: #1f1f1d; --ink: #f1efe8; --muted: #a9a69c; --line: #3a3934;
+      --accent: #fb923c; --accent-ink: #1b1b1b; --route: #fb923c; --you: #93c5fd;
+      --board: #2b2a26; --focus: #93c5fd;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  header h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.02em; }
+  header p { margin: 0; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  @media (min-width: 900px) { .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  label { display: block; font-weight: 600; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 0.9rem; margin: 0 0 8px; }
+  select, textarea, input { width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+         border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  textarea { min-height: 96px; resize: vertical; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 12px; }
+  .row > * { flex: 1 1 140px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 10px 14px;
+           background: var(--accent); color: var(--accent-ink); cursor: pointer; min-height: 44px; }
+  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .status { min-height: 1.4em; color: var(--muted); margin: 10px 0 0; }
+  ol.results { list-style: none; margin: 12px 0 0; padding: 0; }
+  ol.results li { display: grid; grid-template-columns: 2.2rem 1fr; gap: 10px; padding: 10px 0;
+                  border-top: 1px solid var(--line); }
+  .badge { width: 2rem; height: 2rem; border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+           display: grid; place-items: center; font-weight: 700; font-size: 0.9rem; }
+  .badge.off { background: var(--board); color: var(--muted); }
+  .title { font-weight: 600; }
+  .meta { color: var(--muted); font-size: 0.9rem; }
+  .meta a { color: inherit; }
+  li.visited .title { text-decoration: line-through; color: var(--muted); }
+  .visit { display: inline-flex; gap: 6px; align-items: center; font-size: 0.9rem; margin-top: 4px; }
+  .visit input { width: auto; }
+  .mapbox { overflow-x: auto; }
+  svg { display: block; width: 100%; height: auto; max-width: 560px; margin: 0 auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+                         margin-right: 4px; background: var(--c); vertical-align: -1px; }
+  .total { font-weight: 600; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  footer { color: var(--muted); font-size: 0.85rem; margin: 16px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>HallPass</h1>
+    <p>950 posters in 3 hours. Find the ones that matter to you, and walk to them.</p>
+  </header>
+
+  <div class="grid">
+    <section class="panel" aria-labelledby="plan-h">
+      <h2 id="plan-h" class="sr">Plan your session</h2>
+      <label for="session">Poster session</label>
+      <select id="session"></select>
+
+      <div style="margin-top:12px">
+        <label for="q">What do you work on?</label>
+        <p class="hint" id="q-hint">Paste your abstract, or describe your interests in a sentence.</p>
+        <textarea id="q" aria-describedby="q-hint"
+          placeholder="e.g. I work on diffusion models for medical image segmentation"></textarea>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="here">I'm standing at board</label>
+          <input id="here" inputmode="numeric" placeholder="e.g. 3407" autocomplete="off">
+        </div>
+        <button id="plan">Plan my route</button>
+        <button id="near" class="secondary">What's near me?</button>
+      </div>
+
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <ol class="results" id="results" aria-label="Posters, in walking order"></ol>
+    </section>
+
+    <section class="panel" aria-labelledby="map-h">
+      <h2 id="map-h" style="margin:0 0 4px;font-size:1.1rem">Exhibit hall</h2>
+      <p class="hint">Layout inferred from board numbers (row × 100 + slot), not an official floor plan.
+        Numbers on the map follow your route.</p>
+      <div class="mapbox"><svg id="map" role="img" aria-label="Map of the poster hall"></svg></div>
+      <div class="legend" id="legend"></div>
+    </section>
+  </div>
+
+  <footer>Data: NeurIPS 2025 public schedule as published on 2025-12-01, before the poster sessions began.</footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+const CW = 16, CH = 9, AISLE = 13, PADX = 34, PADY = 6, MAXSLOT = 19;
+const PALETTE = ["#4e79a7","#f28e2b","#59a14f","#e15759","#76b7b2","#edc948","#b07aa1","#ff9da7","#9c755f","#86bcb6","#d37295"];
+let hall = [], zones = [], areaColor = {}, routeBoards = [], youAt = null;
+
+const wallTop = (w) => PADY + (w - 1) * (2 * CH + AISLE) + AISLE;
+const rowY = (r) => wallTop(Math.floor((r + 1) / 2)) + (r % 2 ? 0 : CH);
+const slotX = (s) => PADX + s * CW;
+const aisleY = (a) => PADY + a * (2 * CH + AISLE) + AISLE / 2;
+
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+function status(msg) { $("status").textContent = msg; }
+
+function visitedKey(id) { return "hp-visited-" + id; }
+function isVisited(id) { try { return localStorage.getItem(visitedKey(id)) === "1"; } catch { return false; } }
+function setVisited(id, v) { try { v ? localStorage.setItem(visitedKey(id), "1") : localStorage.removeItem(visitedKey(id)); } catch {} }
+
+async function loadSessions() {
+  const sessions = (await api("/sessions")).filter((s) => s.session.startsWith("San Diego"));
+  const sel = $("session");
+  for (const s of sessions) {
+    const d = new Date(s.start);
+    const o = document.createElement("option");
+    o.value = s.session;
+    o.textContent = `${s.session.replace("San Diego ", "")} · ${d.toLocaleDateString(undefined,{weekday:"short", timeZone:"America/Los_Angeles"})} ${d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit", timeZone:"America/Los_Angeles"})} · ${s.posters} posters`;
+    sel.appendChild(o);
+  }
+}
+
+async function loadHall() {
+  const session = $("session").value;
+  status("Loading the hall…");
+  [hall, zones] = await Promise.all([
+    api(`/hall?session=${encodeURIComponent(session)}`),
+    api(`/zones?session=${encodeURIComponent(session)}`),
+  ]);
+  const areas = [...new Set(hall.map((p) => p.topic_area).filter(Boolean))].sort();
+  areaColor = Object.fromEntries(areas.map((a, i) => [a, PALETTE[i % PALETTE.length]]));
+  const legend = $("legend");
+  legend.replaceChildren(...areas.map((a) => {
+    const s = document.createElement("span");
+    s.style.setProperty("--c", areaColor[a]);
+    s.textContent = a;  // scraped data: never as HTML
+    return s;
+  }));
+  routeBoards = []; youAt = null;
+  $("results").innerHTML = "";
+  draw([]);
+  status(`${hall.length} posters on the map.`);
+}
+
+function draw(legs) {
+  const svg = $("map");
+  svg.innerHTML = "";
+  const maxRow = Math.max(...hall.map((p) => p.row), 2);
+  const walls = Math.floor((maxRow + 1) / 2);
+  const W = slotX(MAXSLOT + 1) + 110, H = wallTop(walls) + 2 * CH + AISLE + PADY;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  // wall labels from significant_terms
+  for (const z of zones) {
+    const t = el("text", { x: slotX(MAXSLOT + 1) + 6, y: wallTop(z.wall) + CH + 3, "font-size": 7, fill: "var(--muted)" }, svg);
+    t.textContent = (z.labels[0] || z.area || "").slice(0, 26);
+    const n = el("text", { x: PADX - 6, y: wallTop(z.wall) + CH + 3, "font-size": 7, fill: "var(--muted)", "text-anchor": "end" }, svg);
+    n.textContent = z.wall;
+  }
+
+  const routeIdx = new Map(routeBoards.map((b, i) => [b, i + 1]));
+  for (const p of hall) {
+    const on = routeIdx.has(p.board);
+    const r = el("rect", {
+      x: slotX(p.slot) + 1, y: rowY(p.row) + 0.5, width: CW - 2, height: CH - 1, rx: 1.5,
+      fill: areaColor[p.topic_area] || "var(--board)", "fill-opacity": routeBoards.length ? (on ? 1 : 0.18) : 0.55,
+      stroke: on ? "var(--ink)" : "none", "stroke-width": on ? 1 : 0,
+    }, svg);
+    const tt = el("title", {}, r);
+    tt.textContent = `${p.board_label} · ${p.title}`;
+  }
+
+  // route path
+  for (const leg of legs) {
+    const pts = leg.map(([x, y], i) => {
+      const corner = leg.length === 4 && (i === 1 || i === 2);
+      const slot = x / 3;
+      const sx = corner ? (slot <= 0.01 ? PADX - 8 : slotX(MAXSLOT + 1) + 4) : slotX(slot) + CW / 2;
+      return `${sx},${aisleY(y / 5)}`;
+    });
+    el("polyline", { points: pts.join(" "), fill: "none", stroke: "var(--route)", "stroke-width": 2,
+                     "stroke-linejoin": "round", "stroke-dasharray": "4 3" }, svg);
+  }
+
+  // numbered stops
+  for (const [b, i] of routeIdx) {
+    const p = hall.find((h) => h.board === b);
+    if (!p) continue;
+    const cx = slotX(p.slot) + CW / 2, cy = rowY(p.row) + CH / 2;
+    el("circle", { cx, cy, r: 6.5, fill: "var(--accent)", stroke: "var(--panel)", "stroke-width": 1.5 }, svg);
+    const t = el("text", { x: cx, y: cy + 2.6, "font-size": 7.5, "font-weight": 700, "text-anchor": "middle", fill: "var(--accent-ink)" }, svg);
+    t.textContent = i;
+  }
+
+  if (youAt) {
+    const p = hall.find((h) => h.board === youAt);
+    const row = p ? p.row : Math.floor(youAt / 100), slot = p ? p.slot : youAt % 100;
+    const cx = slotX(slot) + CW / 2, cy = rowY(row) + CH / 2;
+    el("circle", { cx, cy, r: 8, fill: "none", stroke: "var(--you)", "stroke-width": 2.5 }, svg);
+    const t = el("text", { x: cx + 10, y: cy + 3, "font-size": 8, "font-weight": 700, fill: "var(--you)" }, svg);
+    t.textContent = "you";
+  }
+  svg.setAttribute("aria-label", routeBoards.length
+    ? `Map of the poster hall with a ${routeBoards.length}-stop route`
+    : "Map of the poster hall, colored by topic area");
+}
+
+function renderList(items, numbered) {
+  const ol = $("results");
+  ol.innerHTML = "";
+  items.forEach((p, i) => {
+    const li = document.createElement("li");
+    if (isVisited(p.id)) li.classList.add("visited");
+    const n = numbered && p.board ? routeBoards.indexOf(p.board) + 1 : 0;
+    const where = p.board_label ? `Board ${p.board_label}` : "No board number";
+    const walk = p.walk_m != null ? ` · ${Math.round(p.walk_m)} m walk` : "";
+    li.innerHTML = `
+      <div class="badge ${n ? "" : "off"}" aria-hidden="true">${n || "·"}</div>
+      <div>
+        <div class="title"></div>
+        <div class="meta where"></div>
+        <div class="meta authors"></div>
+        <label class="visit"><input type="checkbox" ${isVisited(p.id) ? "checked" : ""}> Visited</label>
+      </div>`;
+    li.querySelector(".title").textContent = (n ? `Stop ${n}: ` : "") + p.title;
+    // Scraped fields go in as text; links only if they're http(s).
+    const meta = li.querySelector(".where");
+    meta.textContent = `${where}${walk} · ${p.topic_area || "Other"}`;
+    if (p.openreview_url && /^https?:\/\//i.test(p.openreview_url)) {
+      meta.append(" · ");
+      meta.append(Object.assign(document.createElement("a"),
+        { href: p.openreview_url, target: "_blank", rel: "noopener", textContent: "paper" }));
+    }
+    li.querySelector(".authors").textContent = (p.authors || []).slice(0, 4).join(", ");
+    li.querySelector("input").addEventListener("change", (e) => {
+      setVisited(p.id, e.target.checked);
+      li.classList.toggle("visited", e.target.checked);
+    });
+    ol.appendChild(li);
+  });
+}
+
+function readHere() {
+  const v = $("here").value.replace(/\D/g, "");
+  return v ? parseInt(v, 10) : null;
+}
+
+async function plan() {
+  const q = $("q").value.trim();
+  if (q.length < 2) { status("Tell me what you work on first."); $("q").focus(); return; }
+  const session = $("session").value;
+  youAt = readHere();
+  status("Finding your posters…");
+  try {
+    const hits = await api(`/search?q=${encodeURIComponent(q)}&session=${encodeURIComponent(session)}&size=12`);
+    const placed = hits.filter((h) => h.board && h.row != null && hall.some((p) => p.board === h.board));
+    if (!placed.length) { routeBoards = []; draw([]); renderList(hits, false); status("No placed posters matched."); return; }
+    const route = await api("/route", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ boards: placed.map((h) => h.board), start: youAt && hall.some((p) => p.board === youAt) ? youAt : null }),
+    });
+    routeBoards = route.order;
+    const byBoard = Object.fromEntries(placed.map((h) => [h.board, h]));
+    const ordered = route.order.map((b) => byBoard[b]);
+    const rest = hits.filter((h) => !placed.includes(h));
+    draw(route.legs);
+    renderList([...ordered, ...rest], true);
+    status(`${ordered.length} stops · about ${route.total_m} m of walking.`);
+  } catch (e) { status("Something went wrong: " + e.message); }
+}
+
+async function near() {
+  const here = readHere();
+  if (!here) { status("Enter the board number you're standing at."); $("here").focus(); return; }
+  const q = $("q").value.trim();
+  const session = $("session").value;
+  youAt = here;
+  status("Looking around you…");
+  try {
+    const params = new URLSearchParams({ board: here, session, size: 8 });
+    if (q.length >= 2) params.set("q", q);
+    const hits = await api(`/near?${params}`);
+    routeBoards = [];
+    draw([]);
+    renderList(hits, false);
+    status(hits.length ? `${hits.length} posters within a short walk${q ? ", ranked by relevance and distance" : ""}.`
+                       : "Nothing within a short walk in this session.");
+  } catch (e) { status("Something went wrong: " + e.message); }
+}
+
+$("plan").addEventListener("click", plan);
+$("near").addEventListener("click", near);
+$("session").addEventListener("change", loadHall);
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) plan(); });
+
+(async () => {
+  try { await loadSessions(); await loadHall(); }
+  catch (e) { status("Couldn't load the hall: " + e.message); }
+})();
+</script>
+</body>
+</html>
