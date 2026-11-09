@@ -20,6 +20,12 @@ def test_root_reports_version():
     assert client.get("/").json()["app"] == "hallpass"
 
 
+def test_root_serves_map_to_browsers():
+    r = client.get("/", headers={"accept": "text/html,application/xhtml+xml"})
+    assert r.status_code == 200
+    assert "<title>HallPass" in r.text
+
+
 def test_readyz_requires_es_config(monkeypatch):
     monkeypatch.delenv("ES_URL", raising=False)
     assert client.get("/readyz").status_code == 503

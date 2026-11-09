@@ -6,8 +6,10 @@ Run:  uv run uvicorn hallpass.api:app --reload
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from hallpass import es as hes
@@ -27,8 +29,14 @@ def es():
 VERSION = os.getenv("APP_VERSION", "dev")
 
 
-@app.get("/")
-def root() -> dict:
+INDEX_HTML = Path(__file__).parent / "static" / "index.html"
+
+
+@app.get("/", response_model=None)
+def root(request: Request) -> dict | HTMLResponse:
+    """Browsers get the hall map; curl and deploy checks get the JSON version."""
+    if "text/html" in request.headers.get("accept", ""):
+        return HTMLResponse(INDEX_HTML.read_text())
     return {"app": "hallpass", "version": VERSION}
 
 
@@ -146,3 +154,55 @@ def route(req: RouteRequest) -> dict:
         "total_m": round(layout.route_length(path)),
         "legs": legs,
     }
+
+
+@app.get("/hall")
+def hall(session: str) -> list[dict]:
+    """Every placed poster in a session, for drawing the map."""
+    resp = es().search(
+        index=hes.INDEX,
+        query={"bool": {"filter": [{"term": {"session": session}}, {"exists": {"field": "row"}}]}},
+        size=1500,
+        _source=["id", "title", "board", "board_label", "row", "slot", "topic_area", "topic", "authors"],
+    )
+    out = []
+    for h in resp["hits"]["hits"]:
+        src = h["_source"]
+        if layout.spot_for_board(src["board"]) is None:
+            continue
+        src["authors"] = (src.get("authors") or [])[:3]
+        out.append(src)
+    return out
+
+
+@app.get("/zones")
+def zones(session: str) -> list[dict]:
+    """Label each wall with the topics that are *unusually* common there compared with
+    the whole hall (significant_terms), so the map labels itself."""
+    resp = es().search(
+        index=hes.INDEX,
+        size=0,
+        query={"bool": {"filter": [{"term": {"session": session}}, {"exists": {"field": "wall"}}]}},
+        aggs={
+            "walls": {
+                "terms": {"field": "wall", "size": 60, "order": {"_key": "asc"}},
+                "aggs": {
+                    "area": {"terms": {"field": "topic_area", "size": 1}},
+                    "standout": {"significant_terms": {"field": "topic", "size": 3, "min_doc_count": 3}},
+                },
+            }
+        },
+    )
+    out = []
+    for b in resp["aggregations"]["walls"]["buckets"]:
+        area = b["area"]["buckets"]
+        out.append({
+            "wall": b["key"],
+            "posters": b["doc_count"],
+            "area": area[0]["key"] if area else None,
+            "labels": [
+                lbl for t in b["standout"]["buckets"]
+                if (lbl := t["key"].split("->")[-1]) not in ("Everything Else", "Other")
+            ],
+        })
+    return out
