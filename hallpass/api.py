@@ -49,7 +49,7 @@ def sessions() -> list[dict]:
 def search(
     q: str = Query(..., min_length=2, description="keywords, a sentence, or your own abstract"),
     session: str | None = None,
-    size: int = Query(20, le=100),
+    size: int = Query(20, ge=1, le=100),
 ) -> list[dict]:
     resp = es().search(index=hes.INDEX, body=hes.search_body(q, session, size))
     return [{"score": h["_score"], **h["_source"]} for h in resp["hits"]["hits"]]
