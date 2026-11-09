@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: app
+  labels:
+    app: app
+spec:
+  # Keep at least one of the two replicas serving through node drains.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: app
