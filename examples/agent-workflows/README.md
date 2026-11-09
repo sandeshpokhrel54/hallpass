@@ -172,10 +172,9 @@ The image tag is the first seven characters of the app commit that triggered
    `gh run watch <RUN-ID> --exit-status`. If the build failed, inspect its logs before
    debugging Kubernetes. Retry briefly if the run is not registered yet, within the
    five-minute deadline; a missing/cancelled/superseded run does not prove a build.
-   Markdown-only changes need no deploy. A kustomization-only push also skips the
-   Action: retain the existing image tag and verify the intended configuration
-   after sync instead of expecting a new app version. Other manifest changes build.
-2. Read the resulting `deploy/kustomization.yaml` from the remote repository and
+   Markdown-only changes need no deploy. Every other merge, including
+   kustomization-only changes, builds and publishes a new `deploy` commit.
+2. Read the resulting `deploy/kustomization.yaml` from `origin/deploy` and
    confirm `newName`/`newTag` identify that build. A successful build for another
    commit is not the evidence you need.
 3. Read the Argo Application with `get_resource`. Refresh/sync through `manage_gitops`

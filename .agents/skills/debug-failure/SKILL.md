@@ -40,13 +40,13 @@ Tell the person what you did before you go deeper.
 | Ready 0/N, readiness failing | The app isn't on `$PORT` (8080), or `/readyz` doesn't answer 200 | Fix the app, or the probe paths in `deploy/` |
 | Pod `Pending`, Warning `SyncError` saying `exceeded quota: team-quota` | Over the team's budget, one total across every namespace in the cluster: 2 CPU / 4 GiB of requests, 4 CPU / 8 GiB of limits | Lower `replicas` or `requests`, or remove something you installed |
 | Pod `Pending`, any other Warning `SyncError` | The host refused the pod: it asks for privileged, hostPath, hostNetwork or hostPID. The event's message has the host's reason | Drop that setting (for a Helm chart, in its values). The host's rules don't bend |
-| Version differs from the expected image tag | Build or sync has not completed | Follow the `ship` skill. A kustomization-only fix intentionally keeps the old app version; verify its configuration instead. |
+| Version differs from the expected image tag | Build or sync has not completed | Follow the `ship` skill. Every non-Markdown merge builds a new tag, including config-only fixes; also verify the configuration took effect. |
 | URL 404 or 503, pods healthy | Service `app` in `team-<team>` is missing, renamed, not on port 80, or selects no ready pods. The platform routes the URL to that Service; the HTTPRoute in `deploy/` plays no part | `diagnose` the Service (`kind: service`, `name: app`) with `probe: true`, and fix it in `deploy/`. If the Service is fine, ask an organizer |
 | Sync fails: namespace not found, or `metadata.annotations: Too long` on a CRD | The Application needs `CreateNamespace=true` or `ServerSideApply=true` | Add them to its `syncOptions`, read the live Application, and pass its complete current list as `sync_options`; follow the `ship` skill’s version-specific guidance |
 
 ## 4. Fix, ship, confirm
 
-Make the smallest change that removes the cause. For repo changes, push and follow the `ship` skill through step 5: verify the built SHA, or the unchanged image tag plus the intended configuration for a deliberately skipped build. For a non-git Secret correction, verify the app's authenticated operation without printing the credential. Confirm `issues` no longer lists the problem.
+Make the smallest change that removes the cause. For repo changes, open and merge a PR, then follow the `ship` skill through step 5: verify the built SHA, plus the intended configuration for a config-only change. For a non-git Secret correction, verify the app's authenticated operation without printing the credential. Confirm `issues` no longer lists the problem.
 
 ## 5. When it's not obvious
 

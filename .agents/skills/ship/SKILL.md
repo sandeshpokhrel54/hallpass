@@ -24,7 +24,7 @@ Skip this if `get_resource` (kind `Application`, group `argoproj.io`, name `app`
 
 Commit on a branch, push the branch, and open a PR (`~/.local/bin/gh pr create`). Wait for CI and Gitar's review; address findings. Ask the person before merging (`~/.local/bin/gh pr merge <n> --squash`). Then `git fetch origin main` and note the merge commit's full SHA (`git rev-parse origin/main`) and its seven-character image tag (`git rev-parse --short=7 origin/main`).
 
-The Action skips merges changing only Markdown and/or `deploy/kustomization.yaml`. Markdown-only changes need no deployment. For an intentional kustomization-only change, skip step 2, retain the existing image tag as the expected app version, and verify the configuration change after sync. Every other push, including other files under `deploy/`, triggers a build.
+The Action skips merges changing only Markdown; those need no deployment. Every other merge, including changes only to files under `deploy/` (such as `deploy/kustomization.yaml`), triggers a build and a new `deploy` commit. For a configuration-only change, the image is rebuilt from the same code, so also verify the configuration change took effect after sync.
 
 ## 2. Wait for the build and its deploy commit
 
@@ -64,7 +64,7 @@ A Rollout pauses at 25% on purpose. For that flow, use the `canary-release` skil
 
 ## 5. Verify from outside
 
-`curl -s https://<team>.cnh.radarhq.io/`. HallPass returns JSON `{"app": "hallpass", "version": "<sha>"}`, and `version` must match the built SHA from step 1, or the unchanged image tag for a deliberately skipped build. For a configuration-only change, also verify the intended configuration took effect. If you replaced the app, request something your change made visible.
+`curl -s https://<team>.cnh.radarhq.io/`. HallPass returns JSON `{"app": "hallpass", "version": "<sha>"}`, and `version` must match the built SHA from step 1. For a configuration-only change, also verify the intended configuration took effect. If you replaced the app, request something your change made visible.
 
 If anything here is red (a failed sync, pods not ready, the old version still serving, a 404 or 503 from the URL), switch to the `debug-failure` skill. Don't push guesses.
 

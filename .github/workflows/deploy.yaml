@@ -8,8 +8,9 @@ name: build-and-deploy
 on:
   push:
     branches: [main]
+    # Bot commits go to `deploy`, not main, so every non-docs merge must run,
+    # including kustomization-only changes.
     paths-ignore:
-      - deploy/kustomization.yaml
       - "**.md"
   workflow_dispatch:
 
