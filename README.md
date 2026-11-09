@@ -85,10 +85,14 @@ on the wrong floor's coordinates, and a WCAG contrast regression. Project-aware 
 checklist; no secrets in public paths).
 
 **Radar.** The app runs in the hackathon's vcluster (`team-hallpass`), deployed by Argo CD and
-operated through Radar's MCP from Claude Code. Radar's AI investigation showed that early crash
-loops were in the platform's CloudNativePG operator (and kube-state-metrics), not our app. The
-evidence (API-server timeouts, startup-probe kills) pointed to an overloaded control plane, so we
-reported it rather than "fixing" pre-installed components.
+operated through Radar's MCP from Claude Code (apply, sync, wait for rollouts, read logs and events).
+Early crash loops turned out to be the platform's, not ours: Radar's AI investigations surfaced
+API-server timeouts, and reading the crashing pods through Radar (logs, events, probe settings)
+showed the CloudNativePG operator being killed by its startup probe, so we reported it rather than
+"fixing" pre-installed components. Radar **Checks** found 4 issues on our Deployment
+(auto-mounted service-account token, writable root filesystem, no PodDisruptionBudget, no topology
+spread); PR #9 fixed them (**4 → 0**), and a post-release **AI investigation** of `app` confirmed the
+hardened pods healthy (read-only root, 0 restarts).
 
 **Dash0.** OpenTelemetry traces, metrics and logs from FastAPI, with the Elasticsearch client's
 native spans nested inside each request; the Dash0 Web SDK in the page, so browser sessions link
