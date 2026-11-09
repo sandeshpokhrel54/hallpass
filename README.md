@@ -17,5 +17,25 @@ as archived on **2025-12-01**, before the poster sessions began (Dec 3–5), i.e
 attendee had on day one. The hall map is **inferred from board numbers** (row × 100 + slot),
 not an official floor plan.
 
+## Run locally
+```
+uv sync
+cp .env.example .env          # add your Elastic Cloud URL + API key
+uv run python -m hallpass.ingest --recreate
+uv run uvicorn hallpass.api:app --reload
+```
+
+## Deploy (Kubernetes, via Radar + Argo CD)
+Every push to `main` builds an image to GHCR (`.github/workflows/deploy.yaml`) and Argo CD
+syncs `deploy/` into namespace `team-hallpass`, served at https://hallpass.cnh.radarhq.io.
+Infra scaffolding comes from [skyhook-io/cnh-starter](https://github.com/skyhook-io/cnh-starter).
+
+Elasticsearch credentials live only in a Kubernetes Secret, created by hand:
+```
+read -rs ES_URL; read -rs ES_API_KEY
+kubectl -n team-hallpass create secret generic app-credentials \
+  --from-literal=es-url="$ES_URL" --from-literal=es-api-key="$ES_API_KEY"
+```
+
 ## AI assistance disclosure
 This project is built with help from Claude Code (Anthropic) as a coding assistant.
