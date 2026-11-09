@@ -6,17 +6,20 @@
 <title>HallPass</title>
 <!--DASH0_RUM-->
 <style>
+  /* Academic-conference palette: slate neutrals, CVPR-style navy for actions,
+     NeurIPS-style sky blue for the route, amber reserved for "you are here". */
   :root {
-    --bg: #f7f6f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #5f5d57; --line: #dedbd2;
-    --accent: #c2410c; --accent-ink: #ffffff; --route: #c2410c; --you: #1d4ed8;
-    --board: #e9e6dd; --focus: #1d4ed8;
+    --bg: #f8fafc; --panel: #ffffff; --ink: #1e293b; --muted: #64748b; --line: #e2e8f0;
+    /* --you and --focus are the -700 shades so text and focus rings meet WCAG AA on white. */
+    --accent: #1b427d; --accent-ink: #ffffff; --route: #0284c7; --you: #b45309;
+    --board: #e2e8f0; --focus: #0369a1;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #151514; --panel: #1f1f1d; --ink: #f1efe8; --muted: #a9a69c; --line: #3a3934;
-      --accent: #fb923c; --accent-ink: #1b1b1b; --route: #fb923c; --you: #93c5fd;
-      --board: #2b2a26; --focus: #93c5fd;
+      --bg: #0f172a; --panel: #1e293b; --ink: #f1f5f9; --muted: #94a3b8; --line: #334155;
+      --accent: #60a5fa; --accent-ink: #0f172a; --route: #38bdf8; --you: #fbbf24;
+      --board: #334155; --focus: #38bdf8;
       color-scheme: dark;
     }
   }
@@ -110,7 +113,7 @@
     <section class="panel" aria-labelledby="map-h">
       <h2 id="map-h" style="margin:0 0 4px;font-size:1.1rem">Exhibit hall</h2>
       <p class="hint">Layout inferred from board numbers (row × 100 + slot), not an official floor plan.
-        Numbers on the map follow your route.</p>
+        Numbers on the map show routing order.</p>
       <div class="mapbox"><svg id="map" role="img" aria-label="Map of the poster hall"></svg></div>
       <div class="legend" id="legend"></div>
     </section>
@@ -123,7 +126,8 @@
 const $ = (id) => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
 const CW = 16, CH = 9, AISLE = 13, PADX = 34, PADY = 6, MAXSLOT = 19;
-const PALETTE = ["#4e79a7","#f28e2b","#59a14f","#e15759","#76b7b2","#edc948","#b07aa1","#ff9da7","#9c755f","#86bcb6","#d37295"];
+// Cool, muted topic colours so the navy stops and sky-blue route stay the loudest marks.
+const PALETTE = ["#5b7db1","#2a9d8f","#7aa95c","#8e7cc3","#c97b84","#d4a24c","#5fa8d3","#a3a86b","#9a8478","#6c8ea4","#b37ab5"];
 let hall = [], zones = [], areaColor = {}, routeBoards = [], youAt = null;
 let venues = [], venue = null, floorY = [0];
 const FLOOR_HEAD = 22, FLOOR_GAP = 18;
@@ -234,7 +238,7 @@ function draw(legs) {
       const h = el("text", { x: 10, y: floorY[f] + 15, "font-size": 10, "font-weight": 700, fill: "var(--ink)" }, svg);
       h.textContent = venue.floors[f];
       const lx = slotX(MAXSLOT / 2) + CW / 2, ly = aisleY(0, f);
-      el("rect", { x: lx - 9, y: ly - 5, width: 18, height: 10, rx: 2, fill: "var(--you)" }, svg);
+      el("rect", { x: lx - 9, y: ly - 5, width: 18, height: 10, rx: 2, fill: "var(--muted)" }, svg);
       const lt = el("text", { x: lx, y: ly + 3, "font-size": 7, "font-weight": 700, "text-anchor": "middle", fill: "var(--panel)" }, svg);
       lt.textContent = "LIFT";
     }
