@@ -30,6 +30,27 @@ class Venue:
             return layout.spot(row - self.split_row, board % 100, board, floor=1)
         return base
 
+    def indexed_geo(self, s: layout.Spot) -> dict[str, float]:
+        """Where a venue spot sits in the index's single-hall coordinates.
+        Floor f's rows were shifted down by f * split_row, i.e. its aisles by
+        f * split_row / 2."""
+        shift = (self.split_row // 2) * layout.AISLE_M * s.floor if self.split_row else 0.0
+        return layout.geo_point(layout.Spot(s.board, s.aisle, s.x, s.y + shift, s.floor))
+
+    def search_areas(self, here: layout.Spot, radius: float) -> list[tuple[dict[str, float], float]]:
+        """Circles (indexed coordinates) guaranteed to contain every poster within
+        ``radius`` metres on foot of ``here``: walking is never shorter than the
+        straight line on the same floor, and other floors are only reachable via
+        their lift with whatever budget is left after the ride."""
+        areas = [(self.indexed_geo(here), radius)]
+        to_lift = layout.walk_m(here, layout.lift(here.floor))
+        left = radius - to_lift - layout.FLOOR_CHANGE_M
+        if left > 0:
+            for f in range(len(self.floors)):
+                if f != here.floor:
+                    areas.append((self.indexed_geo(layout.lift(f)), left))
+        return areas
+
     def local_row(self, board: int) -> tuple[int, int]:
         """(floor, row on that floor) for drawing."""
         row = board // 100

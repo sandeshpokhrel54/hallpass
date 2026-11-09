@@ -206,11 +206,11 @@ def near(
     started = time.perf_counter()
     v = _venue(venue)
     here = _spot_or_422(board, v)
-    body = hes.near_candidates_body(layout.geo_point(here), session, q)
+    # Pre-filter in the index's single-hall coordinates (including the other
+    # floor's lift area when it's within walking budget); rank with venue geometry.
+    body = hes.near_candidates_body(v.search_areas(here, hes.NEAR_RADIUS_M), session, q)
     resp = es().search(index=hes.INDEX, body=body)
     hits = resp["hits"]["hits"]
-    # Candidates come from a straight-line radius on the single-hall geometry;
-    # same-floor distances are unchanged by the venue split, so it stays a superset.
     out = rank_near(hits, here, bool(q), size, v)
     _observe("near", len(out), started, session=session, board=board, candidates=len(hits), with_query=bool(q))
     return out
