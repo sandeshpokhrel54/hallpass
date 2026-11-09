@@ -36,6 +36,8 @@ MAPPINGS: dict[str, Any] = {
         "slot": {"type": "integer"},
         "wall": {"type": "integer"},
         "side": {"type": "keyword"},
+        "aisle": {"type": "integer"},
+        "loc": {"type": "geo_point"},
         "openreview_url": {"type": "keyword", "index": False},
         "virtual_url": {"type": "keyword", "index": False},
     }
@@ -57,6 +59,43 @@ def create_index(es: Elasticsearch, recreate: bool = False) -> None:
             return
         es.indices.delete(index=INDEX)
     es.indices.create(index=INDEX, mappings=MAPPINGS)
+
+
+def near_body(
+    origin: dict[str, float], session: str, q: str | None = None, size: int = 20
+) -> dict[str, Any]:
+    """Posters in this session near a hall position.
+
+    Without ``q``: nearest first. With ``q``: semantic relevance multiplied by a
+    gaussian distance decay, so a highly relevant poster two aisles away can
+    still beat a mediocre one next to you, but a great one at the far end won't.
+    """
+    filters = [{"term": {"session": session}}, {"exists": {"field": "loc"}}]
+    if not q:
+        return {
+            "query": {"bool": {"filter": filters}},
+            "sort": [{"_geo_distance": {"loc": origin, "order": "asc", "unit": "m"}}],
+            "size": size,
+            "_source": SOURCE_FIELDS,
+        }
+    return {
+        "query": {
+            "function_score": {
+                "query": {
+                    "bool": {
+                        "must": {"semantic": {"field": "semantic_content", "query": q}},
+                        "filter": filters,
+                    }
+                },
+                "functions": [
+                    {"gauss": {"loc": {"origin": origin, "offset": "6m", "scale": "20m", "decay": 0.5}}}
+                ],
+                "boost_mode": "multiply",
+            }
+        },
+        "size": size,
+        "_source": SOURCE_FIELDS,
+    }
 
 
 def search_body(q: str, session: str | None = None, size: int = 20) -> dict[str, Any]:

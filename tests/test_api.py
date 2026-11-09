@@ -26,3 +26,20 @@ def test_readyz_requires_es_config(monkeypatch):
     monkeypatch.setenv("ES_URL", "https://es.example")
     monkeypatch.setenv("ES_API_KEY", "x")
     assert client.get("/readyz").status_code == 200
+
+
+def test_route_orders_boards_and_reports_distance():
+    r = client.post("/route", json={"boards": [4902, 105, 110], "start": 101})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["order"][:2] == [105, 110]
+    assert body["total_m"] > 0
+    assert len(body["legs"]) == 3
+
+
+def test_route_rejects_unplaceable_board():
+    assert client.post("/route", json={"boards": [12]}).status_code == 422
+
+
+def test_near_rejects_unplaceable_board():
+    assert client.get("/near", params={"board": 12, "session": "x"}).status_code == 422

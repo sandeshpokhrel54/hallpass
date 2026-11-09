@@ -8,8 +8,10 @@ from __future__ import annotations
 import os
 
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from hallpass import es as hes
+from hallpass import layout
 
 app = FastAPI(title="HallPass")
 _es = None
@@ -73,3 +75,54 @@ def search(
 ) -> list[dict]:
     resp = es().search(index=hes.INDEX, body=hes.search_body(q, session, size))
     return [{"score": h["_score"], **h["_source"]} for h in resp["hits"]["hits"]]
+
+
+def _spot_or_422(board: int) -> layout.Spot:
+    where = layout.spot_for_board(board)
+    if where is None:
+        raise HTTPException(422, f"board {board} has no hall position (expected row*100+slot)")
+    return where
+
+
+def _with_distance(hit: dict, here: layout.Spot) -> dict:
+    src = hit["_source"]
+    where = layout.spot_for_board(src["board"]) if src.get("board") else None
+    return {
+        "score": hit.get("_score"),
+        "walk_m": round(layout.walk_m(here, where)) if where else None,
+        **src,
+    }
+
+
+@app.get("/near")
+def near(
+    board: int = Query(..., description="the board you're standing at, e.g. 3407"),
+    session: str = Query(...),
+    q: str | None = Query(None, min_length=2, description="optional: what you're interested in"),
+    size: int = Query(10, ge=1, le=50),
+) -> list[dict]:
+    """What's worth seeing near me right now: nearest posters, or relevant-and-near with q."""
+    here = _spot_or_422(board)
+    body = hes.near_body(layout.geo_point(here), session, q, size)
+    resp = es().search(index=hes.INDEX, body=body)
+    return [_with_distance(h, here) for h in resp["hits"]["hits"]]
+
+
+class RouteRequest(BaseModel):
+    boards: list[int] = Field(..., min_length=1, max_length=60)
+    start: int | None = Field(None, description="board you're starting from")
+
+
+@app.post("/route")
+def route(req: RouteRequest) -> dict:
+    """Order boards into a short walk through the hall (no Elasticsearch needed)."""
+    stops = [_spot_or_422(b) for b in req.boards]
+    start = _spot_or_422(req.start) if req.start is not None else None
+    order = layout.plan_route(stops, start)
+    path = [start, *order] if start else order
+    legs = [layout.waypoints(a, b) for a, b in zip(path, path[1:])]
+    return {
+        "order": [s.board for s in order],
+        "total_m": round(layout.route_length(path)),
+        "legs": legs,
+    }
