@@ -16,22 +16,6 @@ spec:
       labels:
         app: app
     spec:
-      # The app never calls the Kubernetes API.
-      automountServiceAccountToken: false
-      # Keep the two replicas on different nodes when possible. ScheduleAnyway,
-      # so a busy shared host never leaves a pod Pending.
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app: app
-      volumes:
-        # Writable scratch space; the root filesystem is read-only.
-        - name: tmp
-          emptyDir:
-            sizeLimit: 64Mi
       containers:
         - name: app
           image: app
@@ -92,12 +76,8 @@ spec:
               path: /healthz
               port: http
             periodSeconds: 10
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
           securityContext:
             runAsNonRoot: true
-            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             seccompProfile:
               type: RuntimeDefault
